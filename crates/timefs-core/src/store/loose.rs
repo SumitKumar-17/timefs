@@ -200,19 +200,16 @@ impl ObjectStore for LooseStore {
 
     fn sync(&self) -> Result<()> {
         let pending = std::mem::take(&mut *self.unsynced.lock().unwrap());
-        let mut dirs = BTreeSet::new();
-        for path in &pending {
-            File::open(path)?.sync_all()?;
-            if let Some(dir) = path.parent() {
-                dirs.insert(dir.to_path_buf());
-            }
+        if pending.is_empty() {
+            return Ok(());
         }
-        for dir in dirs {
-            File::open(dir)?.sync_all()?;
-        }
-        if !pending.is_empty() {
-            File::open(&self.root)?.sync_all()?;
-        }
+        fsync_all(&pending)?;
+        let dirs: BTreeSet<PathBuf> = pending
+            .iter()
+            .filter_map(|p| p.parent().map(Path::to_path_buf))
+            .collect();
+        fsync_all(&dirs.into_iter().collect::<Vec<_>>())?;
+        File::open(&self.root)?.sync_all()?;
         Ok(())
     }
 
@@ -240,6 +237,34 @@ impl ObjectStore for LooseStore {
             gets: c.gets.load(Ordering::Relaxed),
         }
     }
+}
+
+/// Below this many paths, spawning threads costs more than it saves.
+const PARALLEL_SYNC_MIN: usize = 2;
+const MAX_SYNC_THREADS: usize = 16;
+
+/// fsync every path, concurrently. Concurrent fsyncs on one filesystem are merged into
+/// shared journal commits, so this is much faster than syncing one file at a time.
+fn fsync_all(paths: &[PathBuf]) -> Result<()> {
+    if paths.len() < PARALLEL_SYNC_MIN {
+        return paths.iter().try_for_each(|p| fsync_path(p));
+    }
+    let threads = paths.len().min(MAX_SYNC_THREADS);
+    let per_thread = paths.len().div_ceil(threads);
+    std::thread::scope(|scope| {
+        let workers: Vec<_> = paths
+            .chunks(per_thread)
+            .map(|chunk| scope.spawn(move || chunk.iter().try_for_each(|p| fsync_path(p))))
+            .collect();
+        workers
+            .into_iter()
+            .try_for_each(|w| w.join().expect("fsync worker panicked"))
+    })
+}
+
+fn fsync_path(path: &Path) -> Result<()> {
+    File::open(path)?.sync_all()?;
+    Ok(())
 }
 
 /// The two-hex-digit fan-out directories (everything except `tmp`).

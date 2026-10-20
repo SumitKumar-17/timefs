@@ -105,7 +105,7 @@ impl Engine {
     /// Persist the working tree and record it as the branch's checkpoint. Returns the
     /// checkpoint commit, or `None` when nothing changed since the last persisted state.
     pub fn checkpoint(&self, wt: &mut WorkTree) -> Result<Option<Hash>> {
-        let tree = self.persist_tree(wt)?;
+        let tree = wt.checkpoint()?;
         if *self.last_persisted.lock().unwrap() == Some(tree) {
             return Ok(None);
         }
@@ -121,7 +121,7 @@ impl Engine {
 
     /// Commit the working tree onto the branch.
     pub fn snapshot(&self, wt: &mut WorkTree, message: &str) -> Result<SnapshotOutcome> {
-        let tree = self.persist_tree(wt)?;
+        let tree = wt.checkpoint()?;
         let tip = self.repo.branch_tip(&self.branch)?;
         if let Some(tip) = tip {
             if self.repo.get_commit(&tip)?.tree == tree {
@@ -131,6 +131,7 @@ impl Engine {
         let commit =
             self.repo
                 .create_commit(tree, tip.into_iter().collect(), &self.author, message)?;
+        // `set_branch_tip` makes all new objects durable before moving the ref.
         self.repo.set_branch_tip(&self.branch, &commit)?;
         match self.repo.refs().delete(&wip_ref(&self.branch)) {
             Ok(()) | Err(Error::RefNotFound(_)) => {}
@@ -138,13 +139,6 @@ impl Engine {
         }
         *self.last_persisted.lock().unwrap() = Some(tree);
         Ok(SnapshotOutcome::Created(commit))
-    }
-
-    /// Write dirty paths as objects and make them durable.
-    fn persist_tree(&self, wt: &mut WorkTree) -> Result<Hash> {
-        let tree = wt.checkpoint()?;
-        self.repo.store().sync()?;
-        Ok(tree)
     }
 }
 
