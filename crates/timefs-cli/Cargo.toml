@@ -15,3 +15,6 @@ timefs-core = { path = "../timefs-core" }
 timefs-fuse = { path = "../timefs-fuse" }
 clap.workspace = true
 signal-hook.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

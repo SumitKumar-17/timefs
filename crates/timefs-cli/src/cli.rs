@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use timefs_core::chunk::Chunker;
 
 use crate::chunker_arg::{parse_chunker, parse_size_arg};
@@ -54,6 +54,14 @@ pub enum Command {
     Checkpoint,
     /// Show the state of a running mount.
     Status,
+    /// Merge another branch or revision into the current branch (repository must be unmounted).
+    Merge(MergeArgs),
+    /// Switch the current branch (repository must be unmounted).
+    Checkout(CheckoutArgs),
+    /// Move the current branch to a revision, rolling it back (repository must be unmounted).
+    Reset(ResetArgs),
+    /// Delete objects that no branch or checkpoint references (repository must be unmounted).
+    Gc(GcArgs),
     /// Verify the integrity of every object and ref.
     Fsck,
     /// Show repository size and deduplication statistics.
@@ -144,4 +152,42 @@ pub struct SnapArgs {
     /// Commit message.
     #[arg(short, long, default_value = "snapshot")]
     pub message: String,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum ResolveArg {
+    Ours,
+    Theirs,
+}
+
+#[derive(Args)]
+pub struct MergeArgs {
+    /// Branch or revision to merge into the current branch.
+    pub rev: String,
+    /// Settle conflicts by taking one side instead of aborting.
+    #[arg(long, value_enum)]
+    pub resolve: Option<ResolveArg>,
+    /// Message for the merge commit.
+    #[arg(short, long)]
+    pub message: Option<String>,
+}
+
+#[derive(Args)]
+pub struct CheckoutArgs {
+    pub branch: String,
+}
+
+#[derive(Args)]
+pub struct ResetArgs {
+    pub rev: String,
+}
+
+#[derive(Args)]
+pub struct GcArgs {
+    /// Keep unreachable objects younger than this many seconds.
+    #[arg(long, default_value_t = 3600)]
+    pub grace_secs: u64,
+    /// Report what would be deleted without deleting.
+    #[arg(long)]
+    pub dry_run: bool,
 }

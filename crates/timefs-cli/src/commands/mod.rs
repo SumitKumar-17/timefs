@@ -1,11 +1,13 @@
 //! One module per command group; `run` dispatches.
 
 mod branch;
+mod guard;
 mod history;
 mod init;
 mod live;
 mod maintenance;
 mod mount;
+mod switch;
 mod transfer;
 
 use std::error::Error;
@@ -35,6 +37,10 @@ pub fn run(cli: Cli) -> CmdResult {
         Command::Snap(args) => live::snap(&repo, args),
         Command::Checkpoint => live::checkpoint(&repo),
         Command::Status => live::status(&repo),
+        Command::Merge(args) => switch::merge(&repo, args),
+        Command::Checkout(args) => switch::checkout(&repo, args),
+        Command::Reset(args) => switch::reset(&repo, args),
+        Command::Gc(args) => maintenance::gc(&repo, args),
         Command::Fsck => maintenance::fsck(&repo),
         Command::Stats => maintenance::stats(&repo),
     }

@@ -754,6 +754,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "signal-hook",
+ "tempfile",
  "timefs-core",
  "timefs-fuse",
 ]

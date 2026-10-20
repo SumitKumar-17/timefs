@@ -12,7 +12,7 @@ project state; update it in the same commit that changes the state.
 | M2 | Core: trees, commits, refs, repository, import/export, restore, diff, `fsck`, CLI offline commands | ☑ |
 | M3 | `WorkTree` overlay (all POSIX ops in-memory) with property tests against a model | ☑ |
 | M4 | FUSE adapter: read-write mount, checkpoints, wip recovery, control socket | ☑ |
-| M5 | Branches, 3-way merge, GC | ☐ |
+| M5 | Branches, 3-way merge, GC | ☑ |
 | M6 | Benchmark suite, profiling, measured optimisations, results write-up | ☐ |
 | M7 | Hardening: crash-injection tests, pjdfstest/fsx runs, docs polish, release | ☐ |
 
@@ -31,6 +31,7 @@ project state; update it in the same commit that changes the state.
 
 Newest first. One line per notable change; link commits or benchmark runs when relevant.
 
+* 2026-10-20, M5 done: 3-way merge, GC, checkout, reset, offline snap (116 tests).
 * 2026-10-20, M4 done: read-write FUSE mount, checkpoints, wip recovery, control socket (93 tests, 8 on a real mount).
 * 2026-10-20, M3 done: WorkTree overlay split into modules; model-based test passes 5000 cases (70 unit tests).
 * 2026-10-20, M2 done: refs, repository, import/export, diff, fsck, offline CLI (58 tests).

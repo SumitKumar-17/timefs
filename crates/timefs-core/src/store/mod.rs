@@ -56,5 +56,11 @@ pub trait ObjectStore: Send + Sync {
     /// point at them (the write ordering invariant).
     fn sync(&self) -> Result<()>;
 
+    /// Remove leftover temporary files from interrupted writes older than `older_than`.
+    /// Returns how many were removed. Backends without temporary files do nothing.
+    fn clean_temp(&self, _older_than: std::time::Duration) -> Result<u64> {
+        Ok(0)
+    }
+
     fn stats(&self) -> StoreStats;
 }

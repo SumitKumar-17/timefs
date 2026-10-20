@@ -179,6 +179,47 @@ impl Repository {
         Ok(commit)
     }
 
+    /// Turn the pending checkpoint of `branch` into a commit on the branch (what `snap` does
+    /// for a mounted tree). Returns `None` when there is no checkpoint, or when it adds
+    /// nothing over the branch tip.
+    pub fn promote_checkpoint(
+        &self,
+        branch: &str,
+        author: &str,
+        message: &str,
+    ) -> Result<Option<Hash>> {
+        let wip_name = wip_ref(branch);
+        let Some(wip) = self.refs.read(&wip_name)? else {
+            return Ok(None);
+        };
+        let checkpoint = self.get_commit(&wip)?;
+        let tip = self.branch_tip(branch)?;
+        if checkpoint.parents != tip.into_iter().collect::<Vec<_>>() {
+            return Err(Error::Invalid(format!(
+                "the checkpoint of branch {branch} is stale (the branch moved after it was written)"
+            )));
+        }
+        let unchanged = match tip {
+            Some(t) => self.get_commit(&t)?.tree == checkpoint.tree,
+            None => false,
+        };
+        let result = if unchanged {
+            None
+        } else {
+            let commit =
+                self.create_commit(checkpoint.tree, checkpoint.parents, author, message)?;
+            self.set_branch_tip(branch, &commit)?;
+            Some(commit)
+        };
+        self.refs.delete(&wip_name)?;
+        Ok(result)
+    }
+
+    /// Whether `branch` has unsnapshotted changes saved in a checkpoint.
+    pub fn has_checkpoint(&self, branch: &str) -> Result<bool> {
+        Ok(self.refs.read(&wip_ref(branch))?.is_some())
+    }
+
     /// History from `tip`, newest first (by commit time, ties broken by hash).
     pub fn log(&self, tip: &Hash, limit: usize) -> Result<Vec<(Hash, Commit)>> {
         let mut commits: HashMap<Hash, Commit> = HashMap::new();
@@ -391,6 +432,63 @@ mod tests {
             .collect();
         assert_eq!(msgs, ["c", "b", "a"]);
         assert_eq!(r.log(&c, 2).unwrap().len(), 2);
+    }
+
+    /// A tree containing one file, so it differs from the empty tree.
+    fn non_empty_tree(r: &Repository) -> Hash {
+        use crate::object::{EntryKind, TreeEntry};
+        let blob = r.store().put_file(&Default::default()).unwrap();
+        let entry = TreeEntry {
+            name: b"f".to_vec(),
+            kind: EntryKind::File,
+            mode: 0o644,
+            uid: 0,
+            gid: 0,
+            size: 0,
+            mtime_ns: 0,
+            hash: blob,
+        };
+        r.store()
+            .put_tree(&Tree::from_entries(vec![entry]).unwrap())
+            .unwrap()
+    }
+
+    #[test]
+    fn promote_checkpoint_covers_each_case() {
+        let (_d, r) = repo();
+        let base = commit(&r, vec![], "base");
+        r.set_branch_tip("main", &base).unwrap();
+        let base_tree = r.get_commit(&base).unwrap().tree;
+
+        // no checkpoint
+        assert_eq!(r.promote_checkpoint("main", "t", "m").unwrap(), None);
+
+        // a checkpoint identical to the tip adds nothing and is cleared
+        let same = r
+            .create_commit(base_tree, vec![base], "t", "checkpoint")
+            .unwrap();
+        r.refs().write("wip/main", &same).unwrap();
+        assert!(r.has_checkpoint("main").unwrap());
+        assert_eq!(r.promote_checkpoint("main", "t", "m").unwrap(), None);
+        assert!(!r.has_checkpoint("main").unwrap());
+
+        // a checkpoint with new content becomes a commit on the branch
+        let changed = r
+            .create_commit(non_empty_tree(&r), vec![base], "t", "checkpoint")
+            .unwrap();
+        r.refs().write("wip/main", &changed).unwrap();
+        let promoted = r.promote_checkpoint("main", "t", "saved").unwrap().unwrap();
+        assert_eq!(r.branch_tip("main").unwrap(), Some(promoted));
+        let c = r.get_commit(&promoted).unwrap();
+        assert_eq!((c.parents, c.message.as_str()), (vec![base], "saved"));
+        assert!(!r.has_checkpoint("main").unwrap());
+
+        // a checkpoint that no longer descends from the tip is refused
+        let stale = r
+            .create_commit(base_tree, vec![base], "t", "checkpoint")
+            .unwrap();
+        r.refs().write("wip/main", &stale).unwrap();
+        assert!(r.promote_checkpoint("main", "t", "m").is_err());
     }
 
     #[test]

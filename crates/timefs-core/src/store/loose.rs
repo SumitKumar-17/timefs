@@ -11,6 +11,7 @@ use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use crate::error::{Error, Result};
 use crate::hash::{Hash, HASH_LEN};
@@ -213,6 +214,19 @@ impl ObjectStore for LooseStore {
             File::open(&self.root)?.sync_all()?;
         }
         Ok(())
+    }
+
+    fn clean_temp(&self, older_than: Duration) -> Result<u64> {
+        let mut removed = 0;
+        for entry in fs::read_dir(self.root.join(TMP_DIR))? {
+            let entry = entry?;
+            let age = entry.metadata()?.modified()?.elapsed().unwrap_or_default();
+            if age >= older_than {
+                fs::remove_file(entry.path())?;
+                removed += 1;
+            }
+        }
+        Ok(removed)
     }
 
     fn stats(&self) -> StoreStats {
