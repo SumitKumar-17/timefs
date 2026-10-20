@@ -18,6 +18,7 @@ pub mod repo;
 pub mod store;
 pub mod timeutil;
 pub mod treeops;
+pub mod worktree;
 
 pub use error::{Error, Result};
 pub use hash::Hash;
