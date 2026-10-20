@@ -9,7 +9,7 @@ project state; update it in the same commit that changes the state.
 |---|-----------|--------|
 | M0 | Repo, docs, ADRs, CI skeleton | ☑ |
 | M1 | Core: hash, codec, object store (loose), chunking, blob/file objects, tests | ☑ |
-| M2 | Core: trees, commits, refs, repository, import/export, restore, diff, `fsck`, CLI offline commands | ☐ |
+| M2 | Core: trees, commits, refs, repository, import/export, restore, diff, `fsck`, CLI offline commands | ☑ |
 | M3 | `WorkTree` overlay (all POSIX ops in-memory) with property tests against a model | ☐ |
 | M4 | FUSE adapter: read-write mount, checkpoints, wip recovery, control socket | ☐ |
 | M5 | Branches, 3-way merge, GC | ☐ |
@@ -31,5 +31,6 @@ project state; update it in the same commit that changes the state.
 
 Newest first. One line per notable change; link commits or benchmark runs when relevant.
 
+* 2026-10-20, M2 done: refs, repository, import/export, diff, fsck, offline CLI (58 tests).
 * 2026-10-20, M1 done: hash, canonical codec, objects, chunking (fixed + FastCDC), loose store.
 * 2026-10-20, Project started. Architecture, format spec and ADRs written.

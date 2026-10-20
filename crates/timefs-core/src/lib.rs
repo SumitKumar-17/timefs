@@ -6,10 +6,19 @@
 
 pub mod chunk;
 pub mod codec;
+pub mod diff;
 pub mod error;
+pub mod fsck;
 pub mod hash;
+pub mod hostfs;
 pub mod object;
+pub mod reach;
+pub mod refs;
+pub mod repo;
 pub mod store;
+pub mod timeutil;
+pub mod treeops;
 
 pub use error::{Error, Result};
 pub use hash::Hash;
+pub use repo::Repository;
