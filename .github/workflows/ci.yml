@@ -14,7 +14,7 @@ jobs:
     name: fmt, clippy, test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install libfuse3
         run: sudo apt-get update && sudo apt-get install -y libfuse3-dev fuse3 pkg-config
       - uses: dtolnay/rust-toolchain@stable
@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: check
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install libfuse3
         run: |
           sudo apt-get update && sudo apt-get install -y libfuse3-dev fuse3 pkg-config

@@ -93,7 +93,7 @@ fn main() {
 
 fn run_core(cfg: &Config, names: Vec<String>) -> scenarios::Res {
     let names: Vec<String> = if names.is_empty() {
-        scenarios::NAMES.iter().map(|s| s.to_string()).collect()
+        scenarios::names().map(str::to_string).collect()
     } else {
         names
     };

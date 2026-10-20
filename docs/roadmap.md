@@ -13,12 +13,12 @@ project state; update it in the same commit that changes the state.
 | M3 | `WorkTree` overlay (all POSIX ops in-memory) with property tests against a model | ☑ |
 | M4 | FUSE adapter: read-write mount, checkpoints, wip recovery, control socket | ☑ |
 | M5 | Branches, 3-way merge, GC | ☑ |
-| M6 | Benchmark suite, profiling, measured optimisations, results write-up | ☐ |
+| M6 | Benchmark suite, profiling, measured optimisations, results write-up | ◐ |
 | M7 | Hardening: crash-injection tests, pjdfstest/fsx runs, docs polish, release | ☐ |
 
 ## Candidate future work (not committed)
 
-* Packed object store (only if M6 shows loose-object overhead dominates, ADR-0003).
+* Log-structured pack store with refs in the log and extent pages (ADR-0009, proposed from M6 measurements).
 * Compression (zstd) per object.
 * Line-level text merge for "both modified a regular file".
 * Live `merge`/`checkout` against a mounted tree with kernel cache invalidation.
@@ -31,6 +31,7 @@ project state; update it in the same commit that changes the state.
 
 Newest first. One line per notable change; link commits or benchmark runs when relevant.
 
+* 2026-10-20, M6: parallel fsync, read cache, kernel page cache; measured before/after in benchmarks.md.
 * 2026-10-20, M5 done: 3-way merge, GC, checkout, reset, offline snap (116 tests).
 * 2026-10-20, M4 done: read-write FUSE mount, checkpoints, wip recovery, control socket (93 tests, 8 on a real mount).
 * 2026-10-20, M3 done: WorkTree overlay split into modules; model-based test passes 5000 cases (70 unit tests).

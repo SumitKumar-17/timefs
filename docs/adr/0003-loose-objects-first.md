@@ -9,7 +9,7 @@
 ## Decision
 * Define an `ObjectStore` trait and ship a loose backend (`objects/ab/cdef...`).
 * Add a packed backend only if benchmarks show loose overhead dominates (inode count, `fsync` cost, directory size, read latency).
-* Benchmarks: [benchmarks.md](../benchmarks.md) (M6, in progress).
+* Benchmarks: [benchmarks.md](../benchmarks.md). The measured overheads are summarised in [ADR-0009](0009-log-structured-pack-store.md), which proposes the pack backend.
 
 ## Alternatives
 * **Pack/segment log from day one:** better small-object performance, but needs index recovery, compaction and crash handling first.

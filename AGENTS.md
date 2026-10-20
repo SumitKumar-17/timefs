@@ -5,11 +5,18 @@ and the ADRs in `docs/adr/` before changing design-level behaviour.
 
 ## Repository map
 
-* `crates/timefs-core`: all logic; **must not depend on FUSE**. Modules: `hash`, `codec`,
-  `object`, `store`, `chunk`, `refs`, `repo`, `worktree`, `diff`, `merge`, `gc`, `fsck`.
-* `crates/timefs-fuse`: thin `fuser` adapter + control socket. No versioning logic here.
-* `crates/timefs-cli`: the `timefs` binary (clap).
-* `docs/`: design docs; `docs/roadmap.md` is the progress log.
+* `crates/timefs-core`: all logic; **must not depend on FUSE**.
+  * objects: `hash`, `codec`, `object`, `chunk`
+  * storage: `store/` (`ObjectStore` trait, `loose`, `cached`, `typed`), `refs`, `repo`
+  * trees: `treeops`, `hostfs` (import/export), `diff`, `merge/`, `reach`, `fsck`, `gc`
+  * live tree: `worktree/` (`node`, `extents`, `dir_ops`, `file_ops`, `persist`, `lifetime`)
+* `crates/timefs-fuse`: thin `fuser` adapter (`fs`), persistence policy (`engine`),
+  `checkpointer`, `control/` socket, `mount`. No versioning logic in `fs`.
+* `crates/timefs-cli`: the `timefs` binary (`cli.rs` for arguments, `commands/` per group).
+* `crates/timefs-bench`: benchmark harness (`scenarios/` core-level, `workloads/` mount-level,
+  `passthrough/` FUSE baseline). `scripts/bench-mount.sh` runs the mount comparison.
+* `docs/`: design docs; `docs/roadmap.md` is the progress log; `docs/benchmarks.md` holds
+  only numbers from real runs.
 
 ## Commands
 
@@ -18,6 +25,10 @@ cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo build --release
+
+# benchmarks (release build; scratch space must be on the disk under test)
+cargo run --release -p timefs-bench -- --work bench-out core
+BENCH_ARGS="--repeat 3" scripts/bench-mount.sh
 ```
 
 FUSE integration tests need `/dev/fuse` and `fusermount3`; they skip when unavailable
