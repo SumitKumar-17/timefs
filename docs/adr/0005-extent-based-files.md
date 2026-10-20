@@ -1,26 +1,23 @@
 # ADR-0005: Extent-based files; no hard links in v1
 
-**Status:** Accepted
+**Status:** Accepted (implemented)
 
 ## Context
-Files need efficient random writes, cheap snapshots, and dedupe. Chunking strategy and
-the hard-link question affect the object format.
+* Files need cheap random writes, cheap snapshots and dedupe.
+* Chunking strategy and hard-link support affect the object format.
 
 ## Decision
-A file is an ordered list of `(blob hash, length)` extents. Blob size is **not** fixed by
-the format. The default writer uses fixed 64 KiB blocks (random in-place writes only touch
-overlapping extents). Content-defined chunking (FastCDC) is available at **import** time
-because it dedupes better when bytes are inserted/removed mid-file; its benefit is
-evaluated in the benchmarks rather than assumed. Truncate-extend creates in-memory `Hole`
-extents materialised as references to one shared all-zero blob.
-
-Hard links are **not supported** in v1 (`link()` fails). Content-level dedupe already gives the space benefit; hard links would require identity (inode) objects in the format and refcount-aware GC.
+* A file is an ordered list of `(blob hash, length)` extents; block size is not fixed by the format.
+* Live writes use fixed 64 KiB blocks, so in-place writes touch only overlapped extents.
+* Content-defined chunking (FastCDC) is available at `import` time (`--chunker cdc[:AVG]`), because it dedupes better under mid-file insertions. Its benefit is measured, not assumed.
+* Truncate-extend creates in-memory `Hole` extents backed by one shared all-zero blob.
+* Hard links are not supported: dedupe already gives the space benefit, and links would need inode objects and refcount-aware GC.
 
 ## Alternatives
-* **Fixed-size blocks only**: simpler, but mid-file insertions defeat dedupe.
-* **CDC for live writes**: an in-place edit shifts boundaries, forcing re-chunking of the tail on every checkpoint.
-* **Inode objects (identity separated from names)**: supports hard links, but every rename/stat path gains an indirection and the format grows.
+* **Fixed-size blocks only:** simpler, but mid-file insertions defeat dedupe.
+* **CDC for live writes:** an in-place edit shifts boundaries and forces re-chunking the tail each checkpoint.
+* **Inode objects (identity separate from names):** allow hard links, but add indirection to rename/stat and grow the format.
 
 ## Consequences
-* Variable-size extents mean offset→extent lookup needs a prefix-sum/binary search.
-* Flat extent lists will become long for huge files; a two-level extent tree is a documented future change (needs a format bump).
+* Offset to extent lookup needs a prefix-sum / binary search.
+* Flat extent lists get long for huge files; a two-level extent tree is a future change needing a format bump.

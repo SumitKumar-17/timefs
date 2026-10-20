@@ -1,30 +1,28 @@
 # ADR-0004: Mutable WorkTree overlay with `wip` checkpoint refs
 
-**Status:** Accepted
+**Status:** Accepted (implemented)
 
 ## Context
-Applications issue many small `write()`s. Creating immutable objects and rewriting the
-path to the root on each one would be prohibitively slow, yet we still want durability and
-crash recovery without implementing a write-ahead log.
+* Applications issue many small `write()` calls.
+* Writing immutable objects and the path to the root on each one is too slow.
+* Durability and crash recovery are still wanted, without a write-ahead log.
 
 ## Decision
-The mounted filesystem is a **mutable in-memory overlay** (`WorkTree`) on top of an
-immutable base commit. Mutations only touch the overlay. A **checkpoint** persists the
-overlay as a commit and points `refs/wip/<branch>` at it; a **snapshot** additionally
-advances `refs/heads/<branch>`. Checkpoints are triggered by `fsync`, a timer, a dirty-bytes
-threshold and unmount. On mount, a valid `wip` ref (whose parent is the branch tip) is
-recovered.
+* The mount is a mutable in-memory overlay (`WorkTree`) over an immutable base commit.
+* Mutations touch only the overlay.
+* **Checkpoint:** persist the overlay as a commit and point `refs/wip/<branch>` at it.
+* **Snapshot:** checkpoint, then advance `refs/heads/<branch>`.
+* Triggers: `fsync`, timer (`--checkpoint-interval`), dirty-bytes threshold (`--flush-threshold-mib`), unmount.
+* On mount, a valid wip ref (parent equals the branch tip) is recovered.
 
 ## Alternatives
-* **Write-ahead log of FUSE operations.** Finer-grained durability, but a second
-  persistence format with its own replay/compaction/corruption handling.
-* **Commit on every write.** Maximal history granularity, unusable write performance.
-* **Write straight through to host files and snapshot lazily (overlayfs-style).** Splits
-  state across two systems and complicates consistency.
+* **Write-ahead log of FUSE operations:** finer durability, but a second persistence format with replay and compaction.
+* **Commit on every write:** maximal granularity, unusable performance.
+* **Write through to host files, snapshot lazily (overlayfs style):** splits state across two systems.
 
 ## Consequences
-* Durability contract equals a normal filesystem: un-`fsync`ed data may be lost on crash,
-  bounded by the checkpoint interval.
-* Checkpoint commits parent on the branch tip, so they never accumulate history.
-* Memory use is bounded by the dirty-bytes threshold.
-* Reuses the existing object/ref machinery for recovery, no extra format.
+* Durability matches a normal filesystem: un-`fsync`ed data may be lost on a crash, bounded by the checkpoint interval.
+* Checkpoint commits parent on the branch tip, so they do not accumulate history.
+* Unpersisted data is bounded by the dirty-bytes threshold.
+* Recovery reuses the object and ref machinery; no extra format.
+* Inodes of touched nodes stay in memory for the life of the mount.

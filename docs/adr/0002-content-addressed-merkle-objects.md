@@ -1,29 +1,26 @@
 # ADR-0002: Content-addressed immutable Merkle objects
 
-**Status:** Accepted
+**Status:** Accepted (implemented)
 
 ## Context
-We need O(1) snapshots, cheap branching, dedupe and corruption detection.
+* Need O(1) snapshots, cheap branching, dedupe and corruption detection.
 
 ## Decision
-Four immutable object kinds (Blob, File, Tree, Commit) named by BLAKE3-256 of their
-canonical encoding; the only mutable state is a small set of refs. Directories are Merkle
-trees, so equal subtrees have equal hashes. See `docs/format.md`.
+* Four immutable object kinds: Blob, File, Tree, Commit.
+* Each is named by the BLAKE3-256 hash of its canonical encoding.
+* Directories are Merkle trees, so equal subtrees have equal hashes.
+* The only mutable state is a small set of refs.
+* Details: [format.md](../format.md).
 
 ## Alternatives
-* **Block-level CoW with a B-tree (ZFS/Btrfs style).** Powerful but requires owning block
-  allocation, free-space maps and reference counting; far more code and a much larger
-  bug surface for a userspace project.
-* **Log-structured with a mutable inode map (NILFS style).** Snapshots are easy but
-  branching and merge are not natural, and cleaning (segment GC) is complex.
-* **SHA-256.** Ubiquitous but ~several× slower than BLAKE3 in software; hashing is on the
-  hot path of every checkpoint. BLAKE3 is also parallelisable and has a stable, well-reviewed spec.
-* **Mutable inodes + per-file version chains.** Cheap per-file history but no consistent
-  whole-tree snapshot and no merge base.
+* **Block-level CoW with a B-tree (ZFS/Btrfs style):** needs block allocation, free-space maps and refcounts; far more code and bug surface.
+* **Log-structured with a mutable inode map (NILFS style):** easy snapshots, but branching and merge are unnatural and segment cleaning is complex.
+* **SHA-256:** several times slower than BLAKE3 in software, and hashing is on the checkpoint hot path.
+* **Mutable inodes with per-file version chains:** cheap per-file history, but no whole-tree snapshot and no merge base.
 
 ## Consequences
-* Dedupe and integrity checking are inherent, not features.
-* Metadata (mode, mtime, size) lives in the *parent* tree entry. Consequence: a metadata
-  change alters the parent hash; merge treats equal content + equal mode/uid/gid as equal and ignores mtime.
-* Deleting data requires GC (ADR-0008), because objects are shared.
-* Hash collisions are treated as impossible (256-bit); no collision handling is implemented.
+* Dedupe and integrity checking are inherent.
+* Metadata (mode, mtime, size) lives in the parent tree entry, so a metadata change alters the parent hash.
+* Merge treats same kind, content, mode, uid and gid as equal and ignores mtime.
+* Deleting data needs GC ([ADR-0008](0008-stop-the-world-gc.md)) because objects are shared.
+* Hash collisions are treated as impossible; no handling exists.

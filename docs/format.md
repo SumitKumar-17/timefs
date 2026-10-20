@@ -1,8 +1,8 @@
 # On-disk format (version 1)
 
-The format is **canonical**: a given logical object has exactly one byte encoding, because
-the encoding is what gets hashed. Never reorder fields, add padding, or change integer
-widths without bumping the format version.
+* The format is **canonical**: one logical object has exactly one byte encoding, because the encoding is hashed.
+* Never reorder fields, add padding or change integer widths without bumping the format version.
+* Implemented in `timefs-core` (`codec`, `object`, `store`, `refs`).
 
 ## Repository layout
 
@@ -73,12 +73,12 @@ message:bytes          UTF-8
 
 ## Refs
 
-Plain text, one line: 64 lowercase hex characters and `\n`. Written via temp file →
-`fsync` → `rename` → `fsync(parent dir)`. Branch names: `[A-Za-z0-9._-/]`, no `..`, no
-leading/trailing `/`, no `.lock` suffix.
+* Plain text, one line: 64 lowercase hex characters and `\n`.
+* Written via temp file, `fsync`, `rename`, `fsync(parent dir)`.
+* Branch names: `[A-Za-z0-9._-/]`, no `..`, no leading/trailing `/`, no `.lock` suffix.
 
 ## Compatibility policy
 
-`FORMAT` carries the major version. A reader refuses repositories with a higher version.
-Any change that alters the bytes of an existing object kind requires a new version and a
-documented migration.
+* `FORMAT` carries the major version.
+* A reader refuses repositories with a higher version.
+* Any change to the bytes of an existing object kind needs a new version and a documented migration.

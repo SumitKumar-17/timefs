@@ -1,7 +1,7 @@
 # TimeFS architecture
 
-> Status legend used in this document: ✅ implemented · 🚧 in progress · 📝 designed, not yet built.
-> The [roadmap](roadmap.md) tracks the current state; this document describes the target design.
+* Everything in sections 1 to 9 is implemented (roadmap milestones M0 to M5 are done).
+* In progress: M6 benchmarks and optimisation. See the [roadmap](roadmap.md).
 
 ## 1. System overview
 
@@ -19,7 +19,7 @@ flowchart TB
 
     subgraph Daemon["timefs mount daemon"]
         FUSEL["timefs-fuse<br/>libfuse3 low-level adapter<br/>(inode/handle mapping, errno translation)"]
-        CTL["Control socket<br/>(snap, status, branch, log)"]
+        CTL["Control socket<br/>(snap, checkpoint, status)"]
         WT["WorkTree (timefs-core)<br/>mutable overlay: inodes, dirty extents"]
         ENG["Version engine (timefs-core)<br/>commit · checkpoint · branch · merge · diff · GC"]
         OBJ["ObjectStore trait<br/>hash-addressed immutable objects"]
@@ -33,7 +33,7 @@ flowchart TB
 
     A1 -->|syscalls| VFS --> FUSEK --> FUSEL
     A2 -->|unix socket| CTL
-    A2 -->|offline ops: log, diff, gc, fsck| ENG
+    A2 -->|offline ops: log, diff, merge, gc, fsck| ENG
     FUSEL --> WT
     CTL --> WT
     WT --> ENG --> OBJ
@@ -42,18 +42,19 @@ flowchart TB
     Daemon -.holds.-> LOCK
 ```
 
-Design rule: **everything below the FUSE adapter is FUSE-agnostic.** `timefs-core`
-contains the object model, the repository, the mutable working tree and the merge/GC
-algorithms, and is exercised by unit, property and crash-injection tests without ever
-mounting anything. `timefs-fuse` is a translation layer (~one function per FUSE opcode).
+Design rule: **everything below the FUSE adapter is FUSE-agnostic.**
+
+* `timefs-core` holds objects, repository, WorkTree, merge and GC; tested without mounting.
+* `timefs-fuse` is a translation layer (about one function per FUSE opcode).
 
 ### Crates
 
 | Crate | Role |
 |-------|------|
-| `timefs-core` | Hashing, canonical codec, object store, chunking, trees/commits, refs, repository, `WorkTree`, diff, merge, GC, fsck |
-| `timefs-fuse` | `fuser` (libfuse3) `Filesystem` implementation over `WorkTree`; control socket server |
-| `timefs-cli`  | `timefs` binary: `init`, `mount`, `snap`, `log`, `branch`, `diff`, `merge`, `restore`, `gc`, `fsck`, `stats` |
+| `timefs-core` | Hashing, canonical codec, loose object store, chunking, trees/commits, refs, repository, `WorkTree`, diff, merge, GC, fsck |
+| `timefs-fuse` | `fuser` (libfuse3) `Filesystem` over `WorkTree`, checkpointer thread, control socket server and client |
+| `timefs-cli`  | `timefs` binary: `init import export log ls cat diff branch checkout reset merge gc fsck stats mount snap checkpoint status` |
+| `timefs-bench` | Benchmark harness (scenarios: snapshot, branch, merge, dedupe, store, write amplification) |
 
 ## 2. Data model
 
@@ -93,22 +94,20 @@ classDiagram
     File --> Blob : extents
 ```
 
-* **Blob**: a block of file data (default 64 KiB; sizes are recorded in the extent list so
-  variable-size chunking is representable without a format change).
-* **File**: an ordered *extent list* `(blob hash, length)`; the file is the concatenation.
-* **Tree**: a directory: entries sorted by name; each entry carries POSIX metadata and the
-  hash of its target. Metadata lives in the *parent's* entry, so `stat` never needs to load
-  a file's content.
-* **Commit**: root tree, parent(s), time, author, message.
-* **Ref**: the only mutable state. `refs/heads/<branch>` is a branch tip;
-  `refs/wip/<branch>` is the crash-recovery checkpoint for a mounted branch (§5).
+| Object | Contents |
+|--------|----------|
+| Blob | Block of file data (default 64 KiB) or symlink target; sizes live in the extent list, so variable-size chunking needs no format change |
+| File | Ordered extent list `(blob hash, length)`; the file is the concatenation |
+| Tree | Directory entries sorted by name, each with POSIX metadata and target hash; metadata lives in the parent entry, so `stat` never loads file content |
+| Commit | Root tree, parents, time, author, message |
+| Ref | The only mutable state: `refs/heads/<b>` (branch tip), `refs/wip/<b>` (crash-recovery checkpoint, see section 5) |
 
-Encoding details: [`format.md`](format.md). Rationale: [ADR-0002](adr/0002-content-addressed-merkle-objects.md).
+* Encoding: [`format.md`](format.md). Rationale: [ADR-0002](adr/0002-content-addressed-merkle-objects.md).
 
 ### Copy-on-write by path copying
 
-Changing one file rewrites only the objects on the path from that file to the root;
-every other object is shared between versions.
+* Changing one file rewrites only the objects on the path from that file to the root.
+* Every other object is shared between versions.
 
 ```mermaid
 flowchart LR
@@ -129,12 +128,12 @@ flowchart LR
     class R2,S2,F2b new
 ```
 
-Cost of a snapshot after editing *k* files at depth *d* is O(k·d) new tree objects plus the
-changed blocks, independent of total tree size.
+* Snapshot cost after editing *k* files at depth *d*: O(k·d) new tree objects plus changed blocks.
+* Independent of total tree size.
 
 ## 3. Components
 
-### 3.1 Object store (`ObjectStore` trait) ✅/📝
+### 3.1 Object store (implemented)
 
 ```text
 put(kind, bytes) -> Hash       // idempotent; writes tmp file + rename; dedupes by existence
@@ -144,20 +143,19 @@ iter()           -> all hashes (for GC / fsck)
 delete(hash)
 ```
 
-v1 backend: **loose objects** (`objects/<2 hex>/<62 hex>`), written atomically. A *packed*
-append-only backend is planned **only if benchmarks show loose-object overhead dominates**
-([ADR-0003](adr/0003-loose-objects-first.md)).
+* Backend: **loose objects** (`objects/<2 hex>/<62 hex>`), written atomically, reads verified against the hash.
+* A packed backend is only considered if benchmarks show loose-object overhead dominates ([ADR-0003](adr/0003-loose-objects-first.md)).
 
-### 3.2 Repository ✅/📝
+### 3.2 Repository (implemented)
 
-Opens/creates a repo directory, owns the object store and refs, takes the `LOCK`
-(`flock`) for exclusive operations, resolves `HEAD`, creates commits, walks history,
-computes merge bases, and runs GC/fsck.
+* Opens or creates a repo directory; owns the object store and refs.
+* Takes the `LOCK` (`flock`) for exclusive operations.
+* Resolves revisions (`HEAD`, branch names, `rev~N`), creates commits, walks history, computes merge bases.
+* Runs GC and fsck.
 
-### 3.3 WorkTree (the mutable overlay) ✅/📝
+### 3.3 WorkTree, the mutable overlay (implemented)
 
-The live, writable view of one branch. This is the heart of the design: FUSE needs cheap
-in-place mutation, while the repository is immutable.
+* The live, writable view of one branch: FUSE needs cheap in-place mutation, the repository is immutable.
 
 ```mermaid
 flowchart TB
@@ -173,45 +171,54 @@ flowchart TB
     IT -- "dirty bit propagates to ancestors" --> IT
 ```
 
-* **Lazy loading.** A directory's `Tree` object is read the first time it is listed; file
-  extents are read the first time a file is opened. Mounting a million-file tree is O(1).
-* **Extents.** A file is a list of extents: `Stored` (a blob in the repo, fetched on
-  demand), `Mem` (modified bytes), `Hole` (zeros; materialised as one shared all-zero blob).
-  A `write()` touches only the extents it overlaps, random writes do not rewrite the file.
-* **Dirty tracking.** Any mutation marks the node and all its ancestors dirty. Unmodified
-  subtrees keep their hash, so committing walks *only dirty paths*.
-* **Hard links** are not supported in v1 (`link()` returns `EPERM`/`ENOTSUP`); data-level
-  dedupe makes them unnecessary for space savings. See [ADR-0005](adr/0005-extent-based-files.md).
+* **Lazy loading:** a directory's `Tree` is read when first listed, file extents when first opened; mount cost does not grow with tree size.
+* **Extents:** `Stored` (blob in the repo, fetched on demand), `Mem` (modified bytes), `Hole` (zeros, shared all-zero blob).
+* **Partial writes:** `write()` touches only overlapped extents.
+* **Dirty tracking:** a mutation marks the node and its ancestors; commit walks only dirty paths.
+* **Memory:** inodes of touched nodes stay in memory for the life of the mount.
+* **Hard links:** not supported (`link()` is not implemented); dedupe covers the space benefit ([ADR-0005](adr/0005-extent-based-files.md)).
 
-### 3.4 Version engine ✅/📝
+### 3.4 Version engine (implemented)
 
 | Operation | What happens | Cost |
 |-----------|--------------|------|
 | **checkpoint** | Flush dirty extents → blobs, write dirty trees bottom-up, write a commit parented on the branch tip, atomically point `refs/wip/<b>` at it | O(dirty bytes + dirty paths) |
-| **snapshot (`snap`)** | checkpoint, then advance `refs/heads/<b>` and clear the wip ref | same + one ref rename |
+| **snapshot (`snap`)** | checkpoint, then advance `refs/heads/<b>` and clear the wip ref (also works offline on an unmounted repo) | same + one ref rename |
 | **branch** | write a new ref | O(1) |
-| **restore / checkout** | point a working tree at another commit | O(1) (+ lazy loads) |
+| **checkout / reset** | switch branch, or move the branch to another revision (repo unmounted) | O(1) (+ lazy loads) |
 | **diff** | recursive tree compare, skipping equal hashes | O(changed paths) |
 | **merge** | 3-way tree merge using the merge base | O(changed paths) |
 | **GC** | mark from all refs, sweep unreachable older than a grace period | O(objects) |
 | **fsck** | rehash every object, check reachability and ref validity | O(bytes) |
 
-### 3.5 FUSE adapter (`timefs-fuse`) 🚧
+### 3.5 FUSE adapter, `timefs-fuse` (implemented)
 
-Implements `fuser::Filesystem` (libfuse3 mount path) with the low-level, inode-based API:
-`lookup getattr setattr readlink mknod mkdir unlink rmdir symlink rename open read write
-flush release fsync opendir readdir releasedir fsyncdir statfs create access forget`.
-The adapter keeps open-file handles, translates `WorkTree` errors to `errno`, and holds no
-versioning logic. Because `fuser`'s trait takes `&self`, the `WorkTree` lives behind a
-lock (coarse-grained in v1; finer-grained locking is a benchmark-driven optimisation).
+* Implements `fuser::Filesystem` (libfuse3) with the low-level inode API: `lookup getattr setattr readlink mknod mkdir unlink rmdir symlink rename open read write flush release fsync opendir readdir releasedir fsyncdir statfs create access forget`.
+* `mknod` accepts regular files only (no device nodes or fifos).
+* Keeps open-file handles, translates `WorkTree` errors to `errno`, holds no versioning logic.
+* The `WorkTree` sits behind one lock because `fuser`'s trait takes `&self`; finer locking is a benchmark-driven option.
+* A checkpointer thread runs the periodic checkpoint (`--checkpoint-interval`).
 
-### 3.6 Control plane 📝
+### 3.6 Control plane (implemented)
 
-A Unix socket in the repo directory (line-based protocol) lets the CLI talk to a running
-daemon: `snap`, `status`, `branch`, `log`. Offline commands (`log`, `diff`, `gc`, `fsck`,
-`stats`, `branch`) operate directly on the repository; the ones that must not race with a
-live working tree (`gc`, `fsck --repair`, `checkout`, `merge`) take the repo `LOCK` and
-fail with a clear message if a daemon holds it ([ADR-0007](adr/0007-control-plane.md)).
+* Unix socket `<repo>/timefs.sock`, newline-delimited text protocol.
+* Requests: `snap [message]`, `checkpoint`, `status`.
+* Offline commands (`log`, `ls`, `cat`, `diff`, `branch`, `fsck`, `stats`) work directly on the repository.
+* `merge`, `checkout`, `reset`, `gc` take the repo `LOCK` and fail with "the repository is mounted; unmount it first" if a daemon holds it ([ADR-0007](adr/0007-control-plane.md)).
+
+```mermaid
+sequenceDiagram
+    participant CLI as timefs snap
+    participant S as Control socket
+    participant E as Mount daemon (WorkTree)
+    participant R as Repository
+    CLI->>S: "snap message"
+    S->>E: take WorkTree lock
+    E->>R: write blobs, trees, commit
+    R->>R: advance refs/heads/b, clear refs/wip/b
+    E-->>S: new commit hash
+    S-->>CLI: reply
+```
 
 ## 4. Life of a write
 
@@ -260,12 +267,11 @@ stateDiagram-v2
     Recovered --> Clean: work resumes from the checkpoint tree
 ```
 
-* Checkpoint commits are parented on the **branch tip** (not on the previous checkpoint),
-  so repeated checkpoints do not accumulate history; only the newest one stays reachable.
-* Data written but not checkpointed when the process dies is lost, the same contract as
-  any page-cache-buffered filesystem without `fsync`. `fsync`, a periodic timer
-  (`--checkpoint-interval`), and a dirty-bytes threshold bound the loss window.
-* Ref updates use write-temp → `fsync` → `rename` → `fsync(dir)`.
+* Checkpoint commits are parented on the **branch tip**, so repeated checkpoints do not accumulate history.
+* Un-checkpointed data is lost on a crash, like any buffered filesystem without `fsync`.
+* The loss window is bounded by `fsync`, `--checkpoint-interval` (default 5 s) and `--flush-threshold-mib`.
+* A stale wip ref (parent is not the branch tip) is ignored on mount.
+* Ref updates: write temp, `fsync`, `rename`, `fsync(dir)`.
 
 ## 6. Merge
 
@@ -294,26 +300,24 @@ flowchart TD
     OUT --> MC["merge commit (2 parents)"]
 ```
 
-Equal subtree hashes short-circuit the walk, so cost is proportional to the number of
-*changed* paths, not tree size. v1 reports conflicts per path (add/add, modify/modify,
-modify/delete, file/dir); line-level text merging is a possible later extension
-([ADR-0006](adr/0006-merge-semantics.md)).
+* Equal subtree hashes short-circuit the walk: cost follows changed paths, not tree size.
+* Conflicts are reported per path (add/add, modify/modify, modify/delete, file/dir).
+* CLI: `timefs merge <rev> [--resolve ours|theirs]`, repository unmounted.
+* Line-level text merge is a possible later extension ([ADR-0006](adr/0006-merge-semantics.md)).
 
 ## 7. Garbage collection
 
-Mark: from every ref (`heads`, `wip`) walk commits → trees → files → blobs.
-Sweep: delete objects not marked **and** older than a grace period (default 1 h) so a
-concurrent writer's not-yet-referenced objects survive. v1 requires the repo to be
-unmounted ([ADR-0008](adr/0008-stop-the-world-gc.md)).
+* Mark: from every ref (`heads`, `wip`) walk commits, trees, files, blobs.
+* Sweep: delete unmarked objects older than the grace period (`--grace-secs`, default 3600).
+* `--dry-run` reports without deleting.
+* Requires the repo unmounted ([ADR-0008](adr/0008-stop-the-world-gc.md)).
 
 ## 8. Concurrency model
 
-* One daemon per repository (enforced by `flock` on `LOCK`).
-* v1 uses a single mutex around `WorkTree`; FUSE worker threads serialise on it. This is
-  deliberately simple and correct; contention is measured (see benchmarks) before any
-  finer-grained locking is introduced.
-* Object store operations are safe for concurrent use (atomic create-by-rename; content
-  addressing makes concurrent identical puts benign).
+* One daemon per repository (`flock` on `LOCK`).
+* A single mutex guards the `WorkTree`; FUSE worker threads (`--threads`, default 1) serialise on it.
+* Contention is measured before any finer locking is added.
+* Object store is safe for concurrent use (atomic create-by-rename; identical puts are benign).
 
 ## 9. Failure modes and how they are handled
 
@@ -330,9 +334,8 @@ unmounted ([ADR-0008](adr/0008-stop-the-world-gc.md)).
 
 * No hard links, no extended attributes, no ACLs, no `mmap` write-sharing guarantees beyond FUSE defaults.
 * Single node, single writer.
-* No encryption or compression (compression is a candidate optimisation, measure first).
-* Whole-repo GC is stop-the-world.
-* Extent lists are flat; very large files (> tens of GiB) would want a two-level extent tree.
-
-See the [roadmap](roadmap.md) for planned work and the [ADRs](adr/) for the reasoning
-behind each choice.
+* No encryption or compression.
+* Whole-repo GC is stop-the-world; `merge`, `checkout`, `reset`, `gc` need the repo unmounted.
+* Inodes of touched nodes stay in memory.
+* Flat extent lists; very large files would want a two-level extent tree.
+* See the [roadmap](roadmap.md) for planned work and the [ADRs](adr/) for reasoning.

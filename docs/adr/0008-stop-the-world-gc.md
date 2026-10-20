@@ -1,20 +1,21 @@
 # ADR-0008: Stop-the-world mark-and-sweep GC with grace period
 
-**Status:** Accepted
+**Status:** Accepted (implemented)
 
 ## Context
-Immutable shared objects need garbage collection once refs move or branches are deleted.
+* Shared immutable objects need collection once refs move or branches are deleted.
 
 ## Decision
-Mark all objects reachable from every ref (heads and wip), then delete unmarked objects
-whose mtime is older than a grace period (default 1 hour). v1 requires the repository lock
-(i.e. not mounted), which makes the algorithm trivially correct.
+* Mark everything reachable from every ref (heads and wip).
+* Delete unmarked objects whose mtime is older than the grace period (`--grace-secs`, default 3600).
+* `--dry-run` reports without deleting.
+* Requires the repository lock (not mounted), which keeps the algorithm simple and correct.
 
 ## Alternatives
-* **Reference counting**: every put/ref-move updates counts; crash recovery of counts is hard.
-* **Concurrent/incremental GC**: needs write barriers or generation tracking; deferred.
+* **Reference counting:** every put and ref move updates counts; recovering counts after a crash is hard.
+* **Concurrent/incremental GC:** needs write barriers or generation tracking; deferred.
 
 ## Consequences
-* GC cannot run while mounted; documented. The grace period guards against deleting
-  objects of an interrupted operation.
-* Cost is O(total objects) per run; fine for the target scale, revisit with benchmarks.
+* GC cannot run while mounted.
+* The grace period protects objects of an interrupted operation.
+* Cost is O(total objects) per run; revisit with benchmarks.

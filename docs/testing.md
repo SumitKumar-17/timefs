@@ -3,17 +3,23 @@
 | Layer | Technique | Where |
 |-------|-----------|-------|
 | Codec, hashing, chunking | Unit + property tests (round-trip, canonical-form rejection, chunker covers input exactly) | `timefs-core` |
-| Object store | Unit tests, concurrent-put test, corruption detection | `timefs-core` |
+| Object store | Unit tests, concurrent put, corruption detection | `timefs-core` |
 | Repository / refs | Unit tests incl. fault injection (leftover temp files, torn refs) | `timefs-core` |
-| WorkTree | **Model-based property tests**: random sequences of POSIX operations are applied to both the WorkTree and a trivial in-memory reference model; results must match, including after checkpoint → reload | `timefs-core` |
-| Diff / merge | Unit + property tests (merge(a,a)=a; one-sided merges; merge with base = commutative on disjoint changes) | `timefs-core` |
-| GC / fsck | Create garbage, verify reachable data survives and garbage goes; corrupt an object, verify detection | `timefs-core` |
-| FUSE | End-to-end integration tests that really mount (skipped automatically when `/dev/fuse` is unavailable) and drive the mount with ordinary `std::fs` calls | `timefs-fuse/tests`, `scripts/` |
-| Conformance | pjdfstest / fsx / fsstress runs against a mount (manual / scheduled; results recorded in `docs/benchmarks.md` or the roadmap, never invented) | `scripts/` |
+| WorkTree | Model-based property tests: random POSIX operations on the WorkTree and an in-memory model must agree, including after checkpoint and reload | `timefs-core/tests/worktree_model` |
+| Diff / merge | Unit + property tests (one-sided merges, merge with itself, disjoint changes) | `timefs-core` |
+| GC / fsck | Create garbage, check reachable data survives; corrupt an object, check detection | `timefs-core` |
+| CLI | End-to-end tests of the `timefs` binary | `timefs-cli/tests/cli.rs` |
+| FUSE | Real mounts driven with ordinary `std::fs` calls; skipped when `/dev/fuse` is unavailable | `timefs-fuse/tests/mount.rs` |
+| Conformance | pjdfstest / fsx / fsstress against a mount (manual or scheduled; M7, not started) | `scripts/` |
 
-Rules:
+## Running
+
+* All tests: `cargo test --workspace`.
+* CI jobs: `check` (fmt, clippy with `-D warnings`, tests) and `fuse-integration` (real mount).
+
+## Rules
 
 * A bug fix lands with a regression test.
-* Tests that need FUSE must skip (not fail) when FUSE is unavailable, and CI must still
-  exercise them on a runner that has `/dev/fuse`.
+* FUSE tests skip (not fail) without FUSE; CI still runs them on a runner with `/dev/fuse`.
 * No test depends on wall-clock timing for correctness.
+* Conformance and benchmark results are recorded only from real runs.
