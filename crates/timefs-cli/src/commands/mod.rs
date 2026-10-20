@@ -3,7 +3,9 @@
 mod branch;
 mod history;
 mod init;
+mod live;
 mod maintenance;
+mod mount;
 mod transfer;
 
 use std::error::Error;
@@ -29,6 +31,10 @@ pub fn run(cli: Cli) -> CmdResult {
         Command::Cat(args) => history::cat(&repo, args),
         Command::Diff(args) => history::diff(&repo, args),
         Command::Branch(args) => branch::run(&repo, args),
+        Command::Mount(args) => mount::run(repo, args),
+        Command::Snap(args) => live::snap(&repo, args),
+        Command::Checkpoint => live::checkpoint(&repo),
+        Command::Status => live::status(&repo),
         Command::Fsck => maintenance::fsck(&repo),
         Command::Stats => maintenance::stats(&repo),
     }

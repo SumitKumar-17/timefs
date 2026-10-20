@@ -10,3 +10,7 @@ license.workspace = true
 timefs-core = { path = "../timefs-core" }
 fuser.workspace = true
 libc.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

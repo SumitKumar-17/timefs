@@ -27,6 +27,14 @@ pub fn parse_chunker(s: &str) -> Result<Chunker, String> {
     Ok(chunker)
 }
 
+/// Clap value parser for plain size options such as `--block-size 64K`.
+pub fn parse_size_arg(s: &str) -> Result<u32, String> {
+    match parse_size(s)? {
+        0 => Err("size must be greater than zero".to_string()),
+        n => Ok(n),
+    }
+}
+
 fn parse_size(s: &str) -> Result<u32, String> {
     let (digits, factor) = match s.chars().last() {
         Some('K' | 'k') => (&s[..s.len() - 1], 1024),

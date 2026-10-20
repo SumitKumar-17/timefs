@@ -19,6 +19,14 @@ impl WorkTree {
         self.getattr(ino)
     }
 
+    /// The parent directory of `ino` (the root is its own parent).
+    pub fn parent(&self, ino: Ino) -> FsResult<Ino> {
+        if ino == super::ROOT_INO {
+            return Ok(ino);
+        }
+        Ok(self.node(ino)?.parent)
+    }
+
     /// All entries of a directory in name order (without `.` and `..`).
     pub fn readdir(&mut self, ino: Ino) -> FsResult<Vec<DirEntry>> {
         self.ensure_children(ino)?;

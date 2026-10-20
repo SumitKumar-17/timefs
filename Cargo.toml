@@ -18,6 +18,7 @@ libc = "0.2"
 clap = { version = "4", features = ["derive", "env"] }
 fuser = { version = "0.18", features = ["libfuse3"] }
 tempfile = "3"
+signal-hook = "0.3"
 proptest = "1"
 criterion = "0.5"
 

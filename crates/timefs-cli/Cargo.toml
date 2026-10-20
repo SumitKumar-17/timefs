@@ -14,3 +14,4 @@ path = "src/main.rs"
 timefs-core = { path = "../timefs-core" }
 timefs-fuse = { path = "../timefs-fuse" }
 clap.workspace = true
+signal-hook.workspace = true

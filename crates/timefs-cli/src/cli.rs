@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::{Args, Parser, Subcommand};
 use timefs_core::chunk::Chunker;
 
-use crate::chunker_arg::parse_chunker;
+use crate::chunker_arg::{parse_chunker, parse_size_arg};
 
 #[derive(Parser)]
 #[command(
@@ -46,6 +46,14 @@ pub enum Command {
     Diff(DiffArgs),
     /// List, create or delete branches.
     Branch(BranchArgs),
+    /// Mount a branch as a filesystem (runs until unmounted).
+    Mount(MountArgs),
+    /// Snapshot the working tree of a running mount onto its branch.
+    Snap(SnapArgs),
+    /// Persist the working tree of a running mount without committing to the branch.
+    Checkpoint,
+    /// Show the state of a running mount.
+    Status,
     /// Verify the integrity of every object and ref.
     Fsck,
     /// Show repository size and deduplication statistics.
@@ -102,4 +110,38 @@ pub struct BranchArgs {
     /// Delete the named branch instead of creating it.
     #[arg(short, long)]
     pub delete: bool,
+}
+
+#[derive(Args)]
+pub struct MountArgs {
+    /// Directory to mount on (must exist and be empty).
+    pub mountpoint: PathBuf,
+    /// Branch to mount (default: the repository's HEAD branch).
+    #[arg(short, long)]
+    pub branch: Option<String>,
+    /// Seconds between automatic checkpoints (0 disables the timer).
+    #[arg(long, default_value_t = 5)]
+    pub checkpoint_interval: u64,
+    /// Checkpoint inline once this many MiB of unpersisted data accumulate.
+    #[arg(long, default_value_t = 256)]
+    pub flush_threshold_mib: u64,
+    /// How long the kernel may cache attributes, in milliseconds.
+    #[arg(long, default_value_t = 1000)]
+    pub attr_ttl_ms: u64,
+    /// Block size for newly written data (K and M suffixes accepted).
+    #[arg(long, default_value = "64K", value_parser = parse_size_arg)]
+    pub block_size: u32,
+    /// Number of FUSE worker threads.
+    #[arg(long, default_value_t = 1)]
+    pub threads: usize,
+    /// Allow other users to access the mount (needs user_allow_other in /etc/fuse.conf).
+    #[arg(long)]
+    pub allow_other: bool,
+}
+
+#[derive(Args)]
+pub struct SnapArgs {
+    /// Commit message.
+    #[arg(short, long, default_value = "snapshot")]
+    pub message: String,
 }
