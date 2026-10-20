@@ -1,0 +1,12 @@
+[package]
+name = "timefs-fuse"
+description = "FUSE adapter that mounts a TimeFS working tree"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+timefs-core = { path = "../timefs-core" }
+fuser.workspace = true
+libc.workspace = true

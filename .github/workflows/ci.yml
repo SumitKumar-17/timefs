@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  check:
+    name: fmt, clippy, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libfuse3
+        run: sudo apt-get update && sudo apt-get install -y libfuse3-dev fuse3 pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets
+      - run: cargo test --workspace
+
+  fuse-integration:
+    name: FUSE integration (real mount)
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libfuse3
+        run: |
+          sudo apt-get update && sudo apt-get install -y libfuse3-dev fuse3 pkg-config
+          echo user_allow_other | sudo tee -a /etc/fuse.conf
+          sudo chmod a+rw /dev/fuse
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run FUSE tests (must actually mount)
+        env:
+          TIMEFS_REQUIRE_FUSE: "1"
+        run: cargo test -p timefs-fuse -- --test-threads=1

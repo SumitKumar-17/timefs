@@ -1,0 +1,16 @@
+[package]
+name = "timefs-cli"
+description = "The timefs command-line tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "timefs"
+path = "src/main.rs"
+
+[dependencies]
+timefs-core = { path = "../timefs-core" }
+timefs-fuse = { path = "../timefs-fuse" }
+clap.workspace = true

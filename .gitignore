@@ -1,0 +1,10 @@
+/target
+**/*.rs.bk
+*.swp
+.idea/
+.vscode/
+# local TimeFS repos / mountpoints created while experimenting
+/.timefs-repo/
+/mnt/
+/bench-out/
+.claude/settings.local.json

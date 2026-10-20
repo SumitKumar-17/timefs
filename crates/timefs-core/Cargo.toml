@@ -1,0 +1,17 @@
+[package]
+name = "timefs-core"
+description = "Content-addressed, copy-on-write versioning engine behind TimeFS"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+blake3.workspace = true
+fastcdc.workspace = true
+thiserror.workspace = true
+libc.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+proptest.workspace = true
