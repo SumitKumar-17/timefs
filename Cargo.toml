@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/timefs-core", "crates/timefs-fuse", "crates/timefs-cli"]
+members = [
+    "crates/timefs-core",
+    "crates/timefs-fuse",
+    "crates/timefs-cli",
+    "crates/timefs-bench",
+]
 
 [workspace.package]
 version = "0.1.0"

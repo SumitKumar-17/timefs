@@ -1,0 +1,20 @@
+[package]
+name = "timefs-bench"
+description = "Benchmark harness for TimeFS (core scenarios, mount workloads, passthrough baseline)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "timefs-bench"
+path = "src/main.rs"
+
+[dependencies]
+timefs-core = { path = "../timefs-core" }
+timefs-fuse = { path = "../timefs-fuse" }
+fuser.workspace = true
+clap.workspace = true
+libc.workspace = true
+signal-hook.workspace = true

@@ -749,6 +749,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "timefs-bench"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "fuser",
+ "libc",
+ "signal-hook",
+ "timefs-core",
+ "timefs-fuse",
+]
+
+[[package]]
 name = "timefs-cli"
 version = "0.1.0"
 dependencies = [
