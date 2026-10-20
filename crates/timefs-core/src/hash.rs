@@ -42,8 +42,9 @@ impl Hash {
             return Err(Error::corrupt(format!("bad hash length {}", bytes.len())));
         }
         let mut out = [0u8; HASH_LEN];
-        for (i, pair) in bytes.chunks_exact(2).enumerate() {
-            out[i] = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+        let (pairs, _) = bytes.as_chunks::<2>();
+        for (slot, [hi, lo]) in out.iter_mut().zip(pairs) {
+            *slot = (nibble(*hi)? << 4) | nibble(*lo)?;
         }
         Ok(Hash(out))
     }
