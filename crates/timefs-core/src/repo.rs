@@ -10,7 +10,7 @@ use crate::error::{Error, Result};
 use crate::hash::Hash;
 use crate::object::Commit;
 use crate::refs::{self, RefStore};
-use crate::store::{LooseStore, ObjectStore, ObjectStoreExt};
+use crate::store::{CachedStore, LooseStore, ObjectStore, ObjectStoreExt};
 use crate::timeutil::now_ns;
 
 const FORMAT_FILE: &str = "FORMAT";
@@ -18,6 +18,8 @@ const FORMAT_LINE: &str = "timefs-repo 1";
 const HEAD_FILE: &str = "HEAD";
 const LOCK_FILE: &str = "LOCK";
 const DEFAULT_BRANCH: &str = "main";
+/// Read cache size for objects (immutable, so it never needs invalidation).
+pub const DEFAULT_CACHE_BYTES: usize = 64 * 1024 * 1024;
 
 /// Held while a process has exclusive use of the repository. Released on drop.
 pub struct RepoLock {
@@ -53,6 +55,11 @@ impl Repository {
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        Self::open_with_cache(path, DEFAULT_CACHE_BYTES)
+    }
+
+    /// Open with a specific object read-cache budget in bytes (0 disables caching).
+    pub fn open_with_cache(path: impl AsRef<Path>, cache_bytes: usize) -> Result<Self> {
         let root = path.as_ref().to_path_buf();
         match fs::read_to_string(root.join(FORMAT_FILE)) {
             Ok(text) if text.trim() == FORMAT_LINE => {}
@@ -62,7 +69,12 @@ impl Repository {
             }
             Err(e) => return Err(e.into()),
         }
-        let store: Arc<dyn ObjectStore> = Arc::new(LooseStore::open(root.join("objects"))?);
+        let disk: Arc<dyn ObjectStore> = Arc::new(LooseStore::open(root.join("objects"))?);
+        let store: Arc<dyn ObjectStore> = if cache_bytes == 0 {
+            disk
+        } else {
+            Arc::new(CachedStore::new(disk, cache_bytes))
+        };
         let refs = RefStore::new(root.join("refs"));
         Ok(Repository { root, store, refs })
     }

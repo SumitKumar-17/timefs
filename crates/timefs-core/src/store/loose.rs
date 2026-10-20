@@ -203,14 +203,15 @@ impl ObjectStore for LooseStore {
         if pending.is_empty() {
             return Ok(());
         }
+        // Two parallel rounds: file contents, then the directories naming them. Measured
+        // slightly faster than one combined round (see docs/benchmarks.md).
         fsync_all(&pending)?;
-        let dirs: BTreeSet<PathBuf> = pending
+        let mut dirs: BTreeSet<PathBuf> = pending
             .iter()
             .filter_map(|p| p.parent().map(Path::to_path_buf))
             .collect();
-        fsync_all(&dirs.into_iter().collect::<Vec<_>>())?;
-        File::open(&self.root)?.sync_all()?;
-        Ok(())
+        dirs.insert(self.root.clone());
+        fsync_all(&dirs.into_iter().collect::<Vec<_>>())
     }
 
     fn clean_temp(&self, older_than: Duration) -> Result<u64> {

@@ -2,8 +2,10 @@
 
 mod env;
 mod gen;
+mod passthrough;
 mod report;
 mod scenarios;
+mod workloads;
 
 use std::path::PathBuf;
 
@@ -37,6 +39,23 @@ enum Command {
         /// Scenario names; empty runs all.
         names: Vec<String>,
     },
+    /// Run mount-level workloads on each target directory and compare them.
+    Workloads {
+        /// A `label=directory` pair; repeat for several targets.
+        #[arg(long = "target", required = true, value_parser = workloads::parse_target)]
+        targets: Vec<workloads::Target>,
+        /// Size of the big file in MiB.
+        #[arg(long, default_value_t = 128)]
+        big_mib: usize,
+        /// Number of small files.
+        #[arg(long, default_value_t = 3000)]
+        small_files: usize,
+    },
+    /// Mount a loopback passthrough filesystem (the FUSE-only baseline).
+    Passthrough {
+        source: PathBuf,
+        mountpoint: PathBuf,
+    },
 }
 
 fn main() {
@@ -53,6 +72,18 @@ fn main() {
     }
     let result = match cli.command {
         Command::Core { names } => run_core(&cfg, names),
+        Command::Workloads {
+            targets,
+            big_mib,
+            small_files,
+        } => {
+            let sizes = workloads::Sizes {
+                big_mib,
+                small_files,
+            };
+            workloads::compare(&targets, cfg.repeat, sizes).map_err(Into::into)
+        }
+        Command::Passthrough { source, mountpoint } => passthrough::run(&source, &mountpoint),
     };
     if let Err(e) = result {
         eprintln!("timefs-bench: error: {e}");

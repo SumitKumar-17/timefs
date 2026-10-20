@@ -4,6 +4,7 @@ mod amplification;
 mod branch;
 mod common;
 mod dedupe;
+mod fsync;
 mod merge;
 mod snapshot;
 mod store;
@@ -32,6 +33,7 @@ pub fn run(name: &str, cfg: &Config) -> Res {
         "amplification" => amplification::run(cfg),
         "store" => store::run(cfg),
         "dedupe" => dedupe::run(cfg),
+        "fsync" => fsync::run(cfg),
         other => Err(format!("unknown scenario {other:?}").into()),
     }
 }

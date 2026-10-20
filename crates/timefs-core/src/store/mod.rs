@@ -3,6 +3,7 @@
 //! [`ObjectStore`] is the backend boundary: the rest of the engine only sees this trait, so
 //! alternative backends (for example a packed store, see ADR-0003) stay a local change.
 
+mod cached;
 mod loose;
 mod typed;
 
@@ -12,6 +13,7 @@ use crate::error::Result;
 use crate::hash::Hash;
 use crate::object::ObjectKind;
 
+pub use cached::{CacheStats, CachedStore};
 pub use loose::LooseStore;
 pub use typed::ObjectStoreExt;
 

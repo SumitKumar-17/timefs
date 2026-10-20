@@ -25,6 +25,8 @@ use crate::statfs::{host_stats, NAME_MAX};
 
 const MAX_WRITE: u32 = 1 << 20;
 const S_IFMT: u32 = 0o170000;
+/// All writes go through this mount, so the kernel page cache can be kept across opens.
+const OPEN_FLAGS: FopenFlags = FopenFlags::FOPEN_KEEP_CACHE;
 const S_IFREG: u32 = 0o100000;
 
 pub struct TimeFs {
@@ -222,7 +224,7 @@ impl Filesystem for TimeFs {
         match wt.getattr(ino.0) {
             Ok(a) if a.kind == timefs_core::object::EntryKind::Dir => reply.error(Errno::EISDIR),
             Ok(_) => match wt.open(ino.0) {
-                Ok(()) => reply.opened(FileHandle(0), FopenFlags::empty()),
+                Ok(()) => reply.opened(FileHandle(0), OPEN_FLAGS),
                 Err(e) => reply.error(errno_of(&e)),
             },
             Err(e) => reply.error(errno_of(&e)),
@@ -250,7 +252,7 @@ impl Filesystem for TimeFs {
                 &to_file_attr(&a),
                 Generation(0),
                 FileHandle(0),
-                FopenFlags::empty(),
+                OPEN_FLAGS,
             ),
             Err(e) => reply.error(errno_of(&e)),
         }
