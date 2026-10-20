@@ -48,6 +48,18 @@ No release has been tagged yet.
 ### Fixed
 
 * Checkpoint of a never-persisted empty tree (found by the model-based test).
+* chmod, chown or touch on a file or symlink that was never read made every later checkpoint
+  fail; metadata-only changes now reuse the existing content object. The model test gained a
+  chmod operation and catches the old behaviour.
+* A torn object left by a crash was trusted by deduplication; `put` now checks the stored
+  length, rewrites a torn object, and fsyncs reused objects before a ref names them.
+* A failed `sync` dropped its pending list, so a later sync could report success over
+  objects that were never made durable.
+* Unlinked-but-open files kept their data in memory forever; checkpoints now spill it.
+* Files larger than 64 GiB are refused with `EFBIG` instead of hanging a checkpoint.
+* A mount no longer overwrites a branch that moved underneath it (checkpoint and snapshot
+  refuse), and a checkpoint equal to the branch state is cleared instead of written.
+* Unlinked files report `nlink` 0; `RENAME_WHITEOUT` is rejected with `EINVAL`.
 
 ### Performance
 
