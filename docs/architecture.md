@@ -202,6 +202,8 @@ flowchart TB
 ### 3.6 Control plane (implemented)
 
 * Unix socket `<repo>/timefs.sock`, newline-delimited text protocol.
+* Each request is one line of at most 4 KiB; connections get 2 s read and write timeouts, so an idle client cannot block other requests or unmount.
+* `timefs mount` exits non-zero if the final checkpoint fails, and only then skips the "changes checkpointed" message.
 * Requests: `snap [message]`, `checkpoint`, `status`.
 * Offline commands (`log`, `ls`, `cat`, `diff`, `branch`, `fsck`, `stats`) work directly on the repository.
 * `merge`, `checkout`, `reset`, `gc` take the repo `LOCK` and fail with "the repository is mounted; unmount it first" if a daemon holds it ([ADR-0007](adr/0007-control-plane.md)).
