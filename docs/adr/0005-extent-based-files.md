@@ -17,9 +17,9 @@ extents materialised as references to one shared all-zero blob.
 Hard links are **not supported** in v1 (`link()` fails). Content-level dedupe already gives the space benefit; hard links would require identity (inode) objects in the format and refcount-aware GC.
 
 ## Alternatives
-* **Fixed-size blocks only** — simpler, but mid-file insertions defeat dedupe.
-* **CDC for live writes** — an in-place edit shifts boundaries, forcing re-chunking of the tail on every checkpoint.
-* **Inode objects (identity separated from names)** — supports hard links, but every rename/stat path gains an indirection and the format grows.
+* **Fixed-size blocks only**: simpler, but mid-file insertions defeat dedupe.
+* **CDC for live writes**: an in-place edit shifts boundaries, forcing re-chunking of the tail on every checkpoint.
+* **Inode objects (identity separated from names)**: supports hard links, but every rename/stat path gains an indirection and the format grows.
 
 ## Consequences
 * Variable-size extents mean offset→extent lookup needs a prefix-sum/binary search.

@@ -15,7 +15,7 @@ tables are empty on purpose.
 | Q4 | What does dedupe buy on realistic data? | logical bytes ÷ stored bytes | tar, raw size |
 | Q5 | Fixed vs content-defined chunks | dedupe ratio on edited files; throughput | each other |
 | Q6 | What is the write overhead? | MB/s seq & random read/write, IOPS | host FS direct; **passthrough FUSE baseline** (isolates FUSE cost from TimeFS cost) |
-| Q7 | Write amplification of a checkpoint | bytes written ÷ bytes changed | — |
+| Q7 | Write amplification of a checkpoint | bytes written ÷ bytes changed | n/a |
 | Q8 | Merge cost | latency vs changed paths | `git merge` on equivalent data |
 | Q9 | Loose-object overhead | inodes used, `fsync` cost, read latency | (decides ADR-0003 follow-up) |
 

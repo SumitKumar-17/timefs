@@ -14,7 +14,7 @@ loose-object overhead (inode count, `fsync` cost, directory size, read latency) 
 ## Alternatives
 * **Pack/segment log from day one** with an in-memory index: better small-object
   performance, but needs index recovery, compaction and crash handling before we even have
-  a working filesystem — premature complexity.
+  a working filesystem, premature complexity.
 * **Embedded KV store (RocksDB/LMDB/sled).** Fast, but a large dependency whose crash
   semantics we would have to trust and explain; hides exactly what we want to study.
 

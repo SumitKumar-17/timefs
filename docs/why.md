@@ -3,8 +3,8 @@
 ## The itch
 
 Most filesystems answer one question: *what are the bytes in this file right now?*
-Everything about the past — "what did this directory look like an hour ago?",
-"undo that `rm -rf`", "try a risky refactor without losing my place" — is bolted on
+Everything about the past, "what did this directory look like an hour ago?",
+"undo that `rm -rf`", "try a risky refactor without losing my place", is bolted on
 from outside: `git` (opt-in, ignores large/binary files, needs discipline), backup
 tools (periodic, coarse), editors' undo (per-file, per-session), or heavyweight
 volume managers (ZFS/Btrfs/LVM snapshots; powerful but block-device-level, root-only,
@@ -29,14 +29,14 @@ TimeFS started from a simple question:
 and a measurable research question:
 
 > **How cheaply can a general-purpose, POSIX-ish filesystem support snapshots,
-> branching and recovery?** — in latency, space, write amplification, and complexity.
+> branching and recovery?**, in latency, space, write amplification, and complexity.
 
 ## What it can do better than the status quo
 
 | Need | Today | With TimeFS |
 |------|-------|-------------|
 | "Undo that delete/overwrite" | Hope for a backup or editor history | Every checkpoint is browsable and restorable, with no copy cost |
-| "Try something risky on this directory" | `cp -r` (slow, doubles space) or Git (only tracked text) | `timefs branch try-it` — O(1), works for any file type and size |
+| "Try something risky on this directory" | `cp -r` (slow, doubles space) or Git (only tracked text) | `timefs branch try-it`, O(1), works for any file type and size |
 | "Compare two states of a tree" | `diff -r` over two full copies | Hash comparison skips every identical subtree; cost ∝ what changed |
 | "Merge two divergent copies" | Manual | 3-way tree merge with explicit conflicts |
 | Snapshot cost | Full copy, or admin-level volume snapshots | A 32-byte hash plus the commit object |
@@ -48,7 +48,7 @@ and a measurable research question:
 
 * **Not a Git replacement.** Git has a rich ecosystem and a human-oriented workflow.
   TimeFS versions *everything on a mounted filesystem*, including large binaries, with no
-  `add`/`commit` ceremony — closer to "Time Machine meets `git branch`".
+  `add`/`commit` ceremony, closer to "Time Machine meets `git branch`".
 * **Not a distributed filesystem** (yet). Single node, single writer per mount. The
   object model is designed so that replication is a natural future extension
   (objects are immutable; syncing is "send me the hashes you don't have"), but it is
@@ -74,14 +74,14 @@ and a measurable research question:
 
 ## Prior art we learn from
 
-* **ZFS / Btrfs** — copy-on-write trees, cheap snapshots; block-device level and kernel-resident.
-* **Git** — content-addressed object DAG, 3-way merge; file-level only, no live filesystem.
-* **Plan 9 Venti / Fossil** — permanent, deduplicated, write-once block storage with a snapshot-based FS on top.
-* **restic / borg / casync** — chunked, deduplicated, content-addressed backup repositories (casync-style content-defined chunking).
-* **Nix store, OCI image layers, lazy-loading image filesystems** — immutable content-addressed
+* **ZFS / Btrfs**: copy-on-write trees, cheap snapshots; block-device level and kernel-resident.
+* **Git**: content-addressed object DAG, 3-way merge; file-level only, no live filesystem.
+* **Plan 9 Venti / Fossil**: permanent, deduplicated, write-once block storage with a snapshot-based FS on top.
+* **restic / borg / casync**: chunked, deduplicated, content-addressed backup repositories (casync-style content-defined chunking).
+* **Nix store, OCI image layers, lazy-loading image filesystems**: immutable content-addressed
   trees; fetching only the files actually used.
-* **NILFS2 / LFS** — log-structured, continuous snapshotting.
-* **Dolt / lakeFS** — "git for data": branch/merge semantics over large datasets.
+* **NILFS2 / LFS**: log-structured, continuous snapshotting.
+* **Dolt / lakeFS**: "git for data": branch/merge semantics over large datasets.
 
 TimeFS's niche is the *combination*: a mountable, general-purpose, writable POSIX-style
 filesystem in userspace, with Git-like branching *as a first-class operation* and

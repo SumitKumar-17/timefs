@@ -1,15 +1,15 @@
-# AGENTS.md — guide for contributors and coding agents
+# AGENTS.md: guide for contributors and coding agents
 
 TimeFS is a versioning userspace filesystem written in Rust. Read `docs/architecture.md`
 and the ADRs in `docs/adr/` before changing design-level behaviour.
 
 ## Repository map
 
-* `crates/timefs-core` — all logic; **must not depend on FUSE**. Modules: `hash`, `codec`,
+* `crates/timefs-core`: all logic; **must not depend on FUSE**. Modules: `hash`, `codec`,
   `object`, `store`, `chunk`, `refs`, `repo`, `worktree`, `diff`, `merge`, `gc`, `fsck`.
-* `crates/timefs-fuse` — thin `fuser` adapter + control socket. No versioning logic here.
-* `crates/timefs-cli` — the `timefs` binary (clap).
-* `docs/` — design docs; `docs/roadmap.md` is the progress log.
+* `crates/timefs-fuse`: thin `fuser` adapter + control socket. No versioning logic here.
+* `crates/timefs-cli`: the `timefs` binary (clap).
+* `docs/`: design docs; `docs/roadmap.md` is the progress log.
 
 ## Commands
 
@@ -27,7 +27,7 @@ If a test dies and leaves a mount: `fusermount3 -u <mountpoint>`.
 ## Engineering rules
 
 1. **Correctness before speed.** Optimise only with a measurement; record it in
-   `docs/benchmarks.md` (what was measured, the bottleneck, the effect — including failures).
+   `docs/benchmarks.md` (what was measured, the bottleneck, the effect, including failures).
 2. **Never fabricate results.** Test, benchmark and CI outcomes in docs/commit messages must come from actual runs.
 3. **Format stability.** Object encodings are canonical and hashed. Changing a byte layout
    requires a `FORMAT` version bump, a note in `docs/format.md`, and a migration plan.
@@ -40,6 +40,10 @@ If a test dies and leaves a mount: `fusermount3 -u <mountpoint>`.
    (and adds an ADR for design decisions) in the same commit. Update `docs/roadmap.md` status.
 9. **Tests with every change.** Bug fixes get a regression test. WorkTree changes must keep the model-based property test passing.
 10. Keep dependencies few and justified; prefer std.
+11. **Code style.** Clean, modular, maintainable code: one responsibility per module, small
+    functions, descriptive names, comments that explain *why*. **No em dashes or en dashes**
+    anywhere (code, comments, docs, commit messages); use commas, colons, parentheses or
+    plain hyphens instead.
 
 ## Git conventions
 

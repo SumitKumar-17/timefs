@@ -2,7 +2,7 @@
 
 A userspace filesystem (FUSE / libfuse3) with **built-in time travel**: every change can be
 checkpointed into an immutable, content-addressed, copy-on-write history that you can
-inspect, branch, merge and roll back — without copying data.
+inspect, branch, merge and roll back, without copying data.
 
 > **Status: early development.** The design is documented; implementation is in
 > progress. See the [roadmap](docs/roadmap.md) for what works today. Nothing in this
@@ -30,7 +30,7 @@ flowchart LR
 * **Dedupe and integrity** for free: data is named by its BLAKE3 hash.
 
 Research question: *how cheaply can a general-purpose filesystem support snapshots,
-branching and recovery?* — answered with measurements in [`docs/benchmarks.md`](docs/benchmarks.md).
+branching and recovery?*, answered with measurements in [`docs/benchmarks.md`](docs/benchmarks.md).
 
 ## Documentation
 
@@ -70,4 +70,4 @@ scripts/             integration and benchmark scripts
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

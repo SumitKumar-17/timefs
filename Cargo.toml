@@ -5,7 +5,7 @@ members = ["crates/timefs-core", "crates/timefs-fuse", "crates/timefs-cli"]
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.89"
 license = "MIT"
 repository = "https://github.com/SumitKumar-17/timefs"
 authors = ["Sumit Kumar"]

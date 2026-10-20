@@ -3,6 +3,7 @@
 # Claude Code notes
 
 * Follow `AGENTS.md`; it is the single source of project conventions.
+* Style: no em dashes or en dashes in anything you write (code, comments, docs, commits). Keep code modular and clean.
 * Commits: **do not add `Co-Authored-By` or "Generated with" trailers** (repo owner's explicit rule).
 * Work autonomously: implement, test, benchmark and document; do not stop at scaffolding.
 * After editing code run `cargo fmt --all`, `cargo clippy --workspace --all-targets -- -D warnings`

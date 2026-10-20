@@ -93,14 +93,14 @@ classDiagram
     File --> Blob : extents
 ```
 
-* **Blob** — a block of file data (default 64 KiB; sizes are recorded in the extent list so
+* **Blob**: a block of file data (default 64 KiB; sizes are recorded in the extent list so
   variable-size chunking is representable without a format change).
-* **File** — an ordered *extent list* `(blob hash, length)`; the file is the concatenation.
-* **Tree** — a directory: entries sorted by name; each entry carries POSIX metadata and the
+* **File**: an ordered *extent list* `(blob hash, length)`; the file is the concatenation.
+* **Tree**: a directory: entries sorted by name; each entry carries POSIX metadata and the
   hash of its target. Metadata lives in the *parent's* entry, so `stat` never needs to load
   a file's content.
-* **Commit** — root tree, parent(s), time, author, message.
-* **Ref** — the only mutable state. `refs/heads/<branch>` is a branch tip;
+* **Commit**: root tree, parent(s), time, author, message.
+* **Ref**: the only mutable state. `refs/heads/<branch>` is a branch tip;
   `refs/wip/<branch>` is the crash-recovery checkpoint for a mounted branch (§5).
 
 Encoding details: [`format.md`](format.md). Rationale: [ADR-0002](adr/0002-content-addressed-merkle-objects.md).
@@ -130,7 +130,7 @@ flowchart LR
 ```
 
 Cost of a snapshot after editing *k* files at depth *d* is O(k·d) new tree objects plus the
-changed blocks — independent of total tree size.
+changed blocks, independent of total tree size.
 
 ## 3. Components
 
@@ -177,7 +177,7 @@ flowchart TB
   extents are read the first time a file is opened. Mounting a million-file tree is O(1).
 * **Extents.** A file is a list of extents: `Stored` (a blob in the repo, fetched on
   demand), `Mem` (modified bytes), `Hole` (zeros; materialised as one shared all-zero blob).
-  A `write()` touches only the extents it overlaps — random writes do not rewrite the file.
+  A `write()` touches only the extents it overlaps, random writes do not rewrite the file.
 * **Dirty tracking.** Any mutation marks the node and all its ancestors dirty. Unmodified
   subtrees keep their hash, so committing walks *only dirty paths*.
 * **Hard links** are not supported in v1 (`link()` returns `EPERM`/`ENOTSUP`); data-level
@@ -262,7 +262,7 @@ stateDiagram-v2
 
 * Checkpoint commits are parented on the **branch tip** (not on the previous checkpoint),
   so repeated checkpoints do not accumulate history; only the newest one stays reachable.
-* Data written but not checkpointed when the process dies is lost — the same contract as
+* Data written but not checkpointed when the process dies is lost, the same contract as
   any page-cache-buffered filesystem without `fsync`. `fsync`, a periodic timer
   (`--checkpoint-interval`), and a dirty-bytes threshold bound the loss window.
 * Ref updates use write-temp → `fsync` → `rename` → `fsync(dir)`.
@@ -330,7 +330,7 @@ unmounted ([ADR-0008](adr/0008-stop-the-world-gc.md)).
 
 * No hard links, no extended attributes, no ACLs, no `mmap` write-sharing guarantees beyond FUSE defaults.
 * Single node, single writer.
-* No encryption or compression (compression is a candidate optimisation — measure first).
+* No encryption or compression (compression is a candidate optimisation, measure first).
 * Whole-repo GC is stop-the-world.
 * Extent lists are flat; very large files (> tens of GiB) would want a two-level extent tree.
 

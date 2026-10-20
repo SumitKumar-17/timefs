@@ -23,10 +23,10 @@ widths without bumping the format version.
 ## Primitive encodings
 
 * All integers little-endian, fixed width unless noted.
-* `varint` — unsigned LEB128, at most 10 bytes, **minimal encoding required** (a decoder
+* `varint`: unsigned LEB128, at most 10 bytes, **minimal encoding required** (a decoder
   rejects non-minimal forms so the encoding stays canonical).
-* `bytes` — `varint length` followed by that many bytes.
-* `hash` — 32 raw bytes (BLAKE3-256).
+* `bytes`: `varint length` followed by that many bytes.
+* `hash`: 32 raw bytes (BLAKE3-256).
 
 ## Object envelope
 

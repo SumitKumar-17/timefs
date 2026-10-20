@@ -27,4 +27,4 @@ recovered.
   bounded by the checkpoint interval.
 * Checkpoint commits parent on the branch tip, so they never accumulate history.
 * Memory use is bounded by the dirty-bytes threshold.
-* Reuses the existing object/ref machinery for recovery — no extra format.
+* Reuses the existing object/ref machinery for recovery, no extra format.

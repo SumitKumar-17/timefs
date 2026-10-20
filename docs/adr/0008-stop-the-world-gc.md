@@ -11,8 +11,8 @@ whose mtime is older than a grace period (default 1 hour). v1 requires the repos
 (i.e. not mounted), which makes the algorithm trivially correct.
 
 ## Alternatives
-* **Reference counting** — every put/ref-move updates counts; crash recovery of counts is hard.
-* **Concurrent/incremental GC** — needs write barriers or generation tracking; deferred.
+* **Reference counting**: every put/ref-move updates counts; crash recovery of counts is hard.
+* **Concurrent/incremental GC**: needs write barriers or generation tracking; deferred.
 
 ## Consequences
 * GC cannot run while mounted; documented. The grace period guards against deleting

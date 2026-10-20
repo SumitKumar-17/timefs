@@ -14,10 +14,10 @@ exclude a live working tree (`gc`, `merge`, `checkout`, repair) take the repo `f
 refuse with a clear message if a daemon holds it.
 
 ## Alternatives
-* **Virtual control files inside the mount** (`/.timefs/ctl`) — convenient for shell
+* **Virtual control files inside the mount** (`/.timefs/ctl`), convenient for shell
   users, but pollutes the namespace and mixes data and control; may be added later for read-only introspection.
-* **ioctl on the mount** — needs the CLI to be inside the mount; awkward.
-* **D-Bus/gRPC** — heavy dependencies for a handful of commands.
+* **ioctl on the mount**: needs the CLI to be inside the mount; awkward.
+* **D-Bus/gRPC**: heavy dependencies for a handful of commands.
 
 ## Consequences
 * A stale socket file must be detected (connect-refused → remove).
