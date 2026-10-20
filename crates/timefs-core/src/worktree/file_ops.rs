@@ -11,6 +11,18 @@ use crate::store::{ObjectStore, ObjectStoreExt};
 
 const PERM_MASK: u32 = 0o7777;
 
+/// Largest supported file. Holes are stored as references to a shared zero block, one per
+/// block of the hole, so the extent list grows with the logical size; this bound keeps a
+/// single checkpoint finite (see ADR-0009 for extent pages, which would lift it).
+pub const MAX_FILE_SIZE: u64 = 64 * 1024 * 1024 * 1024;
+
+fn check_size(end: u64) -> FsResult<()> {
+    if end > MAX_FILE_SIZE {
+        return Err(FsError::FileTooBig);
+    }
+    Ok(())
+}
+
 impl WorkTree {
     pub fn read(&mut self, ino: Ino, off: u64, size: usize) -> FsResult<Vec<u8>> {
         self.ensure_file_list(ino)?;
@@ -22,6 +34,10 @@ impl WorkTree {
     }
 
     pub fn write(&mut self, ino: Ino, off: u64, data: &[u8]) -> FsResult<usize> {
+        check_size(
+            off.checked_add(data.len() as u64)
+                .ok_or(FsError::FileTooBig)?,
+        )?;
         let block = self.block_size;
         self.modify_file(ino, |list, store| list.write(store, off, data, block))?;
         Ok(data.len())
@@ -46,6 +62,7 @@ impl WorkTree {
 
     pub fn setattr(&mut self, ino: Ino, change: SetAttr) -> FsResult<Attr> {
         if let Some(size) = change.size {
+            check_size(size)?;
             self.modify_file(ino, |list, store| list.truncate(store, size))?;
         }
         let node = self.node_mut(ino)?;

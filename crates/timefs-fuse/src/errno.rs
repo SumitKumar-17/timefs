@@ -12,6 +12,7 @@ pub fn errno_of(e: &FsError) -> Errno {
         FsError::IsDir => Errno::EISDIR,
         FsError::NotEmpty => Errno::ENOTEMPTY,
         FsError::NameTooLong => Errno::ENAMETOOLONG,
+        FsError::FileTooBig => Errno::EFBIG,
         FsError::InvalidArgument(_) => Errno::EINVAL,
         FsError::Unsupported(_) => Errno::ENOTSUP,
         FsError::Store(inner) => store_errno(inner),

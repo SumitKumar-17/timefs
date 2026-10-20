@@ -205,8 +205,8 @@ impl Filesystem for TimeFs {
         flags: RenameFlags,
         reply: ReplyEmpty,
     ) {
-        if flags.contains(RenameFlags::RENAME_EXCHANGE) {
-            return reply.error(Errno::EINVAL); // exchange is not supported
+        if flags.intersects(RenameFlags::RENAME_EXCHANGE | RenameFlags::RENAME_WHITEOUT) {
+            return reply.error(Errno::EINVAL); // exchange and whiteout are not supported
         }
         let no_replace = flags.contains(RenameFlags::RENAME_NOREPLACE);
         let result = self.shared.lock().rename(

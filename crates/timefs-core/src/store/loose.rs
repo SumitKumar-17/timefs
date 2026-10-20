@@ -5,7 +5,7 @@
 //! written since the previous sync (and the directories holding it), which keeps `put`
 //! cheap while still honouring the "objects durable before refs" invariant.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::fs::{self, File};
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
@@ -33,8 +33,9 @@ struct Counters {
 pub struct LooseStore {
     root: PathBuf,
     verify_reads: bool,
-    /// Objects created since the last `sync`.
-    unsynced: Mutex<Vec<PathBuf>>,
+    /// Objects created or reused since the last `sync`. Reused objects are included because
+    /// an object left by a crashed process may exist without ever having been made durable.
+    unsynced: Mutex<HashSet<PathBuf>>,
     tmp_seq: AtomicU64,
     counters: Counters,
 }
@@ -47,7 +48,7 @@ impl LooseStore {
         Ok(LooseStore {
             root,
             verify_reads: true,
-            unsynced: Mutex::new(Vec::new()),
+            unsynced: Mutex::new(HashSet::new()),
             tmp_seq: AtomicU64::new(0),
             counters: Counters::default(),
         })
@@ -101,19 +102,19 @@ impl ObjectStore for LooseStore {
         self.counters.puts.fetch_add(1, Ordering::Relaxed);
 
         let path = self.object_path(&hash);
-        if path.exists() {
+        if is_intact(&path, stored_len)? {
             self.counters.dedup_hits.fetch_add(1, Ordering::Relaxed);
             self.counters
                 .dedup_bytes
                 .fetch_add(stored_len, Ordering::Relaxed);
-            return Ok(hash);
+        } else {
+            self.write_new(&path, kind, payload)?;
+            self.counters.new_objects.fetch_add(1, Ordering::Relaxed);
+            self.counters
+                .new_bytes
+                .fetch_add(stored_len, Ordering::Relaxed);
         }
-        self.write_new(&path, kind, payload)?;
-        self.counters.new_objects.fetch_add(1, Ordering::Relaxed);
-        self.counters
-            .new_bytes
-            .fetch_add(stored_len, Ordering::Relaxed);
-        self.unsynced.lock().unwrap().push(path);
+        self.unsynced.lock().unwrap().insert(path);
         Ok(hash)
     }
 
@@ -199,19 +200,18 @@ impl ObjectStore for LooseStore {
     }
 
     fn sync(&self) -> Result<()> {
-        let pending = std::mem::take(&mut *self.unsynced.lock().unwrap());
+        let pending: Vec<PathBuf> = std::mem::take(&mut *self.unsynced.lock().unwrap())
+            .into_iter()
+            .collect();
         if pending.is_empty() {
             return Ok(());
         }
-        // Two parallel rounds: file contents, then the directories naming them. Measured
-        // slightly faster than one combined round (see docs/benchmarks.md).
-        fsync_all(&pending)?;
-        let mut dirs: BTreeSet<PathBuf> = pending
-            .iter()
-            .filter_map(|p| p.parent().map(Path::to_path_buf))
-            .collect();
-        dirs.insert(self.root.clone());
-        fsync_all(&dirs.into_iter().collect::<Vec<_>>())
+        let result = sync_paths(&self.root, &pending);
+        if result.is_err() {
+            // Keep them pending: a later sync must not report success over these objects.
+            self.unsynced.lock().unwrap().extend(pending);
+        }
+        result
     }
 
     fn clean_temp(&self, older_than: Duration) -> Result<u64> {
@@ -237,6 +237,28 @@ impl ObjectStore for LooseStore {
             dedup_bytes: c.dedup_bytes.load(Ordering::Relaxed),
             gets: c.gets.load(Ordering::Relaxed),
         }
+    }
+}
+
+/// Two parallel rounds: file contents, then the directories naming them (and the store root,
+/// which names new fan-out directories). Measured slightly faster than one combined round.
+fn sync_paths(root: &Path, files: &[PathBuf]) -> Result<()> {
+    fsync_all(files)?;
+    let mut dirs: BTreeSet<PathBuf> = files
+        .iter()
+        .filter_map(|p| p.parent().map(Path::to_path_buf))
+        .collect();
+    dirs.insert(root.to_path_buf());
+    fsync_all(&dirs.into_iter().collect::<Vec<_>>())
+}
+
+/// Whether a complete object already exists at `path`. A wrong length means a write was
+/// torn by a crash, so the caller writes the object again.
+fn is_intact(path: &Path, expected_len: u64) -> Result<bool> {
+    match fs::metadata(path) {
+        Ok(meta) => Ok(meta.len() == expected_len),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -368,6 +390,46 @@ mod tests {
         s.sync().unwrap();
         assert!(s.unsynced.lock().unwrap().is_empty());
         assert_eq!(fs::read_dir(s.root().join(TMP_DIR)).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_torn_object_is_rewritten_instead_of_trusted() {
+        let (_d, s) = store();
+        let h = s.put_blob(b"important bytes").unwrap();
+        // simulate a crash that left the object file empty (ext4 delayed allocation)
+        fs::write(s.object_path(&h), b"").unwrap();
+        assert_eq!(s.put_blob(b"important bytes").unwrap(), h);
+        assert_eq!(s.get_blob(&h).unwrap(), b"important bytes");
+        assert_eq!(
+            s.stats().new_objects,
+            2,
+            "the torn object must be written again"
+        );
+    }
+
+    #[test]
+    fn reused_objects_are_synced_before_publication() {
+        let (_d, s) = store();
+        let h = s.put_blob(b"left by another process").unwrap();
+        s.sync().unwrap();
+        s.put_blob(b"left by another process").unwrap();
+        assert!(s.unsynced.lock().unwrap().contains(&s.object_path(&h)));
+        s.sync().unwrap();
+        assert!(s.unsynced.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_failed_sync_keeps_objects_pending() {
+        let (_d, s) = store();
+        let h = s.put_blob(b"will vanish").unwrap();
+        s.put_blob(b"stays").unwrap();
+        fs::remove_file(s.object_path(&h)).unwrap(); // makes the fsync fail
+        assert!(s.sync().is_err());
+        assert_eq!(
+            s.unsynced.lock().unwrap().len(),
+            2,
+            "nothing may be dropped on failure"
+        );
     }
 
     #[test]

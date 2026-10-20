@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 1394068ccbbe08a3f7a5298f3d446a7b8544efeb6fd3fba58f018b3ecb7b54f5 # shrinks to ops = [Write(["a"], 0, [])]
+cc 5871db0adf7b8a9a65d72c404ab86207c7bc6dd68a2b2e77b9890f08f499f074 # shrinks to ops = [Create(["a"]), CheckpointReload, Chmod(["a"], 0), CheckpointReload]

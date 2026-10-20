@@ -21,6 +21,11 @@ pub enum MountError {
     Core(#[from] timefs_core::Error),
     #[error("mount failed: {0}")]
     Io(#[from] std::io::Error),
+    #[error("unmount failed: {0}")]
+    Unmount(#[source] std::io::Error),
+    /// Changes made since the last checkpoint could not be persisted at shutdown.
+    #[error("final checkpoint failed, recent changes were not saved: {0}")]
+    FinalCheckpoint(#[source] timefs_core::Error),
 }
 
 #[derive(Clone, Debug)]
@@ -143,8 +148,26 @@ impl Mounted {
         self.session.guard.is_finished()
     }
 
-    /// Unmount and shut everything down, persisting remaining changes.
-    pub fn unmount(self) -> std::io::Result<()> {
+    /// Unmount and shut everything down, persisting remaining changes. A failed final
+    /// checkpoint is reported in preference to an unmount error, because it means data
+    /// was lost; with `final_checkpoint` disabled no checkpoint is attempted.
+    pub fn unmount(self) -> Result<(), MountError> {
+        let (unmounted, checkpointed) = self.shutdown();
+        checkpointed.map_err(MountError::FinalCheckpoint)?;
+        unmounted.map_err(MountError::Unmount)
+    }
+
+    /// Shut down after the filesystem was unmounted externally. The session is already
+    /// gone, so only the final checkpoint can fail.
+    pub fn finish(self) -> Result<(), MountError> {
+        let (_already_unmounted, checkpointed) = self.shutdown();
+        checkpointed.map_err(MountError::FinalCheckpoint)
+    }
+
+    /// Stop the helpers, end the session, then run the final checkpoint. FUSE `destroy`
+    /// usually ran it already (and only logged a failure); repeating it is cheap when
+    /// nothing changed and retries when it failed, so its result is authoritative.
+    fn shutdown(self) -> (std::io::Result<()>, timefs_core::Result<()>) {
         let Mounted {
             session,
             shared,
@@ -158,13 +181,7 @@ impl Mounted {
         if let Some(c) = checkpointer {
             c.stop();
         }
-        let result = session.umount_and_join();
-        shared.finish();
-        result
-    }
-
-    /// Shut down after the filesystem was unmounted externally.
-    pub fn finish(self) {
-        let _ = self.unmount();
+        let unmounted = session.umount_and_join();
+        (unmounted, shared.finish_checked())
     }
 }

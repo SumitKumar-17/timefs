@@ -18,6 +18,8 @@ pub enum Op {
     Symlink(Vec<String>, String),
     Write(Vec<String>, usize, Vec<u8>),
     Truncate(Vec<String>, usize),
+    /// Metadata-only change (mode); content and tree shape stay the same.
+    Chmod(Vec<String>, u32),
     Unlink(Vec<String>),
     Rmdir(Vec<String>),
     Rename(Vec<String>, Vec<String>),
@@ -101,6 +103,14 @@ impl Harness {
                 };
                 wt.setattr(ino, change).map(|_| ())
             }
+            Op::Chmod(p, mode) => {
+                let ino = resolve_entry(wt, p)?;
+                let change = timefs_core::worktree::SetAttr {
+                    mode: Some(*mode),
+                    ..Default::default()
+                };
+                wt.setattr(ino, change).map(|_| ())
+            }
             Op::Unlink(p) => {
                 let (parent, name) = split(p);
                 let dir = resolve_dir(wt, parent)?;
@@ -144,6 +154,10 @@ impl Harness {
             Op::Truncate(p, s) => {
                 let (a, n) = split(p);
                 m.truncate(a, n, *s)
+            }
+            Op::Chmod(p, _) => {
+                let (a, n) = split(p);
+                m.chmod(a, n)
             }
             Op::Unlink(p) => {
                 let (a, n) = split(p);

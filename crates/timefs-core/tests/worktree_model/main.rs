@@ -24,6 +24,7 @@ fn op() -> impl Strategy<Value = Op> {
         6 => (path(), 0usize..60, proptest::collection::vec(any::<u8>(), 0..30))
                 .prop_map(|(p, o, d)| Op::Write(p, o, d)),
         2 => (path(), 0usize..80).prop_map(|(p, s)| Op::Truncate(p, s)),
+        2 => (path(), 0u32..0o1000).prop_map(|(p, m)| Op::Chmod(p, m)),
         2 => path().prop_map(Op::Unlink),
         2 => path().prop_map(Op::Rmdir),
         3 => (path(), path()).prop_map(|(a, b)| Op::Rename(a, b)),

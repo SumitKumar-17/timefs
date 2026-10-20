@@ -67,17 +67,7 @@ impl RefStore {
             std::process::id(),
             self.tmp_seq.fetch_add(1, Ordering::Relaxed)
         ));
-        let result = (|| -> std::io::Result<()> {
-            let mut f = File::create(&tmp)?;
-            f.write_all(format!("{hash}\n").as_bytes())?;
-            f.sync_all()?;
-            fs::rename(&tmp, &path)?;
-            File::open(parent)?.sync_all()
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&tmp);
-        }
-        Ok(result?)
+        Ok(write_atomic(&tmp, &path, format!("{hash}\n").as_bytes())?)
     }
 
     /// Create a ref; fails if it already exists.
@@ -111,6 +101,28 @@ impl RefStore {
         out.sort_by(|a, b| a.0.cmp(&b.0));
         Ok(out)
     }
+}
+
+/// Crash-safely replace `target` with `contents`: write `tmp`, fsync it, rename it over
+/// `target`, then fsync the target's directory so the rename itself is durable. A crash
+/// leaves either the old or the new contents, never a truncated file. `tmp` must be on
+/// the same filesystem as `target`; it is removed if any step fails.
+pub(crate) fn write_atomic(tmp: &Path, target: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let result = (|| -> std::io::Result<()> {
+        let mut f = File::create(tmp)?;
+        f.write_all(contents)?;
+        f.sync_all()?;
+        fs::rename(tmp, target)?;
+        let dir = match target.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => Path::new("."),
+        };
+        File::open(dir)?.sync_all()
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(tmp);
+    }
+    result
 }
 
 fn collect(dir: &Path, rel: String, out: &mut Vec<(String, Hash)>) -> Result<()> {

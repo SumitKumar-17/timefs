@@ -324,3 +324,95 @@ fn checkpointing_an_untouched_empty_tree_works() {
     assert!(again.readdir(ROOT_INO).unwrap().is_empty());
     assert_eq!(wt.checkpoint().unwrap(), root);
 }
+
+#[test]
+fn metadata_change_on_an_unread_file_or_symlink_checkpoints() {
+    // Regression: setattr on a node whose data was never loaded used to make every later
+    // checkpoint fail with "dirty file not loaded".
+    let fx = Fixture::new();
+    let mut wt = fx.open(None);
+    write_file(&mut wt, ROOT_INO, "f", b"payload");
+    wt.symlink(ROOT_INO, b"ln", b"f", 0, 0).unwrap();
+    let base = wt.checkpoint().unwrap();
+
+    let mut wt = fx.open(Some(base));
+    let f = wt.lookup(ROOT_INO, b"f").unwrap().ino;
+    let ln = wt.lookup(ROOT_INO, b"ln").unwrap().ino;
+    wt.setattr(
+        f,
+        SetAttr {
+            mode: Some(0o600),
+            ..SetAttr::default()
+        },
+    )
+    .unwrap();
+    wt.setattr(
+        ln,
+        SetAttr {
+            mtime_ns: Some(42),
+            ..SetAttr::default()
+        },
+    )
+    .unwrap();
+    let root = wt.checkpoint().unwrap();
+
+    let mut again = fx.open(Some(root));
+    let f = again.lookup(ROOT_INO, b"f").unwrap();
+    assert_eq!(f.mode, 0o600);
+    assert_eq!(read_all(&mut again, f.ino), b"payload");
+    let ln = again.lookup(ROOT_INO, b"ln").unwrap();
+    assert_eq!(ln.mtime_ns, 42);
+    assert_eq!(again.readlink(ln.ino).unwrap(), b"f");
+}
+
+#[test]
+fn unlinked_open_file_data_is_spilled_at_checkpoint() {
+    let fx = Fixture::new();
+    let mut wt = fx.open(None);
+    let f = write_file(&mut wt, ROOT_INO, "tmp", b"");
+    wt.open(f).unwrap();
+    wt.unlink(ROOT_INO, b"tmp").unwrap();
+    wt.write(f, 0, &[7u8; 100]).unwrap();
+    assert!(wt.dirty_bytes() >= 100);
+    assert_eq!(
+        wt.getattr(f).unwrap().nlink,
+        0,
+        "unlinked files report nlink 0"
+    );
+    wt.checkpoint().unwrap();
+    assert_eq!(
+        wt.dirty_bytes(),
+        0,
+        "spilled data no longer counts as held in memory"
+    );
+    assert_eq!(
+        read_all(&mut wt, f),
+        vec![7u8; 100],
+        "still readable through the handle"
+    );
+}
+
+#[test]
+fn files_beyond_the_size_limit_are_refused() {
+    let fx = Fixture::new();
+    let mut wt = fx.open(None);
+    let f = write_file(&mut wt, ROOT_INO, "f", b"x");
+    let too_big = SetAttr {
+        size: Some(MAX_FILE_SIZE + 1),
+        ..SetAttr::default()
+    };
+    assert!(matches!(wt.setattr(f, too_big), Err(FsError::FileTooBig)));
+    assert!(matches!(
+        wt.write(f, MAX_FILE_SIZE, b"y"),
+        Err(FsError::FileTooBig)
+    ));
+    assert!(matches!(
+        wt.write(f, u64::MAX - 1, b"yy"),
+        Err(FsError::FileTooBig)
+    ));
+    assert_eq!(
+        wt.getattr(f).unwrap().size,
+        1,
+        "a refused change leaves the file untouched"
+    );
+}

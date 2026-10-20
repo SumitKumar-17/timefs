@@ -38,6 +38,10 @@ pub struct Engine {
     block_size: usize,
     /// Root tree hash most recently written to a ref (branch tip or wip checkpoint).
     last_persisted: Mutex<Option<Hash>>,
+    /// The branch tip this mount builds on. If the branch moves underneath the mount (an
+    /// offline command while mounted), persisting would silently revert that change, so
+    /// checkpoints and snapshots refuse instead.
+    base_tip: Mutex<Option<Hash>>,
 }
 
 impl Engine {
@@ -54,6 +58,7 @@ impl Engine {
             author: author.to_string(),
             block_size,
             last_persisted: Mutex::new(None),
+            base_tip: Mutex::new(None),
         })
     }
 
@@ -90,6 +95,7 @@ impl Engine {
             }
         }
         *self.last_persisted.lock().unwrap() = root;
+        *self.base_tip.lock().unwrap() = tip;
 
         let meta = std::fs::metadata(self.repo.root())?;
         let opts = Options {
@@ -103,16 +109,22 @@ impl Engine {
     }
 
     /// Persist the working tree and record it as the branch's checkpoint. Returns the
-    /// checkpoint commit, or `None` when nothing changed since the last persisted state.
+    /// checkpoint commit, or `None` when nothing needed recording.
     pub fn checkpoint(&self, wt: &mut WorkTree) -> Result<Option<Hash>> {
         let tree = wt.checkpoint()?;
         if *self.last_persisted.lock().unwrap() == Some(tree) {
             return Ok(None);
         }
-        let parents: Vec<Hash> = self.repo.branch_tip(&self.branch)?.into_iter().collect();
-        let commit = self
-            .repo
-            .create_commit(tree, parents, &self.author, "checkpoint")?;
+        let tip = self.unmoved_tip()?;
+        if self.tree_of(tip)? == Some(tree) {
+            // Back to the branch state: a checkpoint would only block merge and checkout.
+            self.clear_checkpoint(tree)?;
+            return Ok(None);
+        }
+        let commit =
+            self.repo
+                .create_commit(tree, tip.into_iter().collect(), &self.author, "checkpoint")?;
+        // One sync covers the new tree objects and the commit object together.
         self.repo.store().sync()?;
         self.repo.refs().write(&wip_ref(&self.branch), &commit)?;
         *self.last_persisted.lock().unwrap() = Some(tree);
@@ -122,9 +134,10 @@ impl Engine {
     /// Commit the working tree onto the branch.
     pub fn snapshot(&self, wt: &mut WorkTree, message: &str) -> Result<SnapshotOutcome> {
         let tree = wt.checkpoint()?;
-        let tip = self.repo.branch_tip(&self.branch)?;
-        if let Some(tip) = tip {
-            if self.repo.get_commit(&tip)?.tree == tree {
+        let tip = self.unmoved_tip()?;
+        if let (Some(tip), Some(tip_tree)) = (tip, self.tree_of(tip)?) {
+            if tip_tree == tree {
+                self.clear_checkpoint(tree)?;
                 return Ok(SnapshotOutcome::Unchanged(tip));
             }
         }
@@ -133,12 +146,38 @@ impl Engine {
                 .create_commit(tree, tip.into_iter().collect(), &self.author, message)?;
         // `set_branch_tip` makes all new objects durable before moving the ref.
         self.repo.set_branch_tip(&self.branch, &commit)?;
+        *self.base_tip.lock().unwrap() = Some(commit);
+        self.clear_checkpoint(tree)?;
+        Ok(SnapshotOutcome::Created(commit))
+    }
+
+    /// The branch tip, provided nobody moved it since this mount last saw it.
+    fn unmoved_tip(&self) -> Result<Option<Hash>> {
+        let current = self.repo.branch_tip(&self.branch)?;
+        let expected = *self.base_tip.lock().unwrap();
+        if current != expected {
+            return Err(Error::Invalid(format!(
+                "branch {} moved while mounted; refusing to overwrite it (unmount and remount)",
+                self.branch
+            )));
+        }
+        Ok(current)
+    }
+
+    fn tree_of(&self, commit: Option<Hash>) -> Result<Option<Hash>> {
+        commit
+            .map(|c| self.repo.get_commit(&c).map(|c| c.tree))
+            .transpose()
+    }
+
+    /// Remove the checkpoint ref; the working tree now equals `tree`, which is on the branch.
+    fn clear_checkpoint(&self, tree: Hash) -> Result<()> {
         match self.repo.refs().delete(&wip_ref(&self.branch)) {
             Ok(()) | Err(Error::RefNotFound(_)) => {}
             Err(e) => return Err(e),
         }
         *self.last_persisted.lock().unwrap() = Some(tree);
-        Ok(SnapshotOutcome::Created(commit))
+        Ok(())
     }
 }
 
@@ -206,6 +245,63 @@ mod tests {
         assert!(e.repo().refs().read(&wip_ref("main")).unwrap().is_none());
         let (_, rec) = e.open_tree().unwrap();
         assert_eq!(rec, Recovery::default());
+    }
+
+    #[test]
+    fn reverting_to_the_branch_state_clears_the_checkpoint() {
+        let (_d, e) = setup();
+        let (mut wt, _) = e.open_tree().unwrap();
+        write(&mut wt, "f", b"x");
+        e.snapshot(&mut wt, "base").unwrap();
+        let f = wt.lookup(ROOT_INO, b"f").unwrap().ino;
+        let chmod = |wt: &mut WorkTree, mode| {
+            let change = timefs_core::worktree::SetAttr {
+                mode: Some(mode),
+                ..Default::default()
+            };
+            wt.setattr(f, change).unwrap();
+        };
+        chmod(&mut wt, 0o600);
+        assert!(e.checkpoint(&mut wt).unwrap().is_some());
+        assert!(e.repo().has_checkpoint("main").unwrap());
+        chmod(&mut wt, 0o644);
+        assert!(e.checkpoint(&mut wt).unwrap().is_none());
+        assert!(
+            !e.repo().has_checkpoint("main").unwrap(),
+            "no stale checkpoint may remain"
+        );
+        chmod(&mut wt, 0o600);
+        e.checkpoint(&mut wt).unwrap();
+        chmod(&mut wt, 0o644);
+        assert!(matches!(
+            e.snapshot(&mut wt, "s").unwrap(),
+            SnapshotOutcome::Unchanged(_)
+        ));
+        assert!(!e.repo().has_checkpoint("main").unwrap());
+    }
+
+    #[test]
+    fn refuses_to_persist_when_the_branch_moved_underneath() {
+        let (_d, e) = setup();
+        let (mut wt, _) = e.open_tree().unwrap();
+        write(&mut wt, "f", b"x");
+        e.snapshot(&mut wt, "base").unwrap();
+        // something outside the mount moves the branch
+        let tip = e.repo().branch_tip("main").unwrap().unwrap();
+        let tree = e.repo().get_commit(&tip).unwrap().tree;
+        let other = e
+            .repo()
+            .create_commit(tree, vec![tip], "x", "elsewhere")
+            .unwrap();
+        e.repo().set_branch_tip("main", &other).unwrap();
+        write(&mut wt, "g", b"y");
+        assert!(e.checkpoint(&mut wt).is_err());
+        assert!(e.snapshot(&mut wt, "s").is_err());
+        assert_eq!(
+            e.repo().branch_tip("main").unwrap(),
+            Some(other),
+            "the outside change survives"
+        );
     }
 
     #[test]

@@ -49,8 +49,10 @@ pub fn run(repo: Repository, args: MountArgs) -> CmdResult {
     while !term.load(Ordering::SeqCst) && !mounted.is_finished() {
         sleep(POLL);
     }
+    // Report success only when the final checkpoint really persisted the changes; an
+    // error here exits non-zero with the reason.
     if mounted.is_finished() {
-        mounted.finish();
+        mounted.finish()?;
     } else {
         mounted.unmount()?;
     }

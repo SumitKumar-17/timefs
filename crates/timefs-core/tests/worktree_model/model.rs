@@ -93,6 +93,14 @@ impl Model {
         }
     }
 
+    /// Mode is not modelled; only whether the entry exists matters.
+    pub fn chmod(&mut self, parent: &[String], name: &str) -> MResult<()> {
+        match self.dir_mut(parent)?.get(name) {
+            Some(_) => Ok(()),
+            None => Err(Kind::NotFound),
+        }
+    }
+
     pub fn unlink(&mut self, parent: &[String], name: &str) -> MResult<()> {
         let dir = self.dir_mut(parent)?;
         match dir.get(name) {

@@ -24,6 +24,7 @@ use crate::store::{ObjectStore, ObjectStoreExt};
 use crate::timeutil::now_ns;
 
 pub use error::{FsError, FsResult};
+pub use file_ops::MAX_FILE_SIZE;
 pub use node::{Attr, DirEntry, Ino, SetAttr, ROOT_INO};
 
 use node::{Body, DirBody, FileBody, Meta, Node, SymlinkBody};
@@ -117,10 +118,10 @@ impl WorkTree {
             gid: n.meta.gid,
             size: n.size(),
             mtime_ns: n.meta.mtime_ns,
-            nlink: if n.body.kind() == EntryKind::Dir {
-                2
-            } else {
-                1
+            nlink: match (n.unlinked, n.body.kind()) {
+                (true, _) => 0,
+                (false, EntryKind::Dir) => 2,
+                (false, _) => 1,
             },
         })
     }

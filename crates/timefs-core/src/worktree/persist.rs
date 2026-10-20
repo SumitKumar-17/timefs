@@ -20,7 +20,28 @@ impl WorkTree {
                 root.dirty = true;
             }
         }
-        self.persist_node(ROOT_INO)
+        let root = self.persist_node(ROOT_INO)?;
+        self.spill_unlinked()?;
+        Ok(root)
+    }
+
+    /// Move the data of unlinked-but-open files out of memory into (unreferenced) blobs.
+    /// They stay readable through their handles; `gc` reclaims the blobs later. Without
+    /// this, such files would hold memory forever and keep the dirty threshold exceeded.
+    fn spill_unlinked(&mut self) -> Result<()> {
+        let store = self.store.clone();
+        let block = self.block_size;
+        let mut freed = 0;
+        for node in self.nodes.values_mut().filter(|n| n.unlinked) {
+            if let Body::File(f) = &mut node.body {
+                if let Some(list) = f.list.as_mut().filter(|l| l.mem_bytes() > 0) {
+                    freed += list.mem_bytes();
+                    list.persist(store.as_ref(), block)?;
+                }
+            }
+        }
+        self.dirty_bytes = self.dirty_bytes.saturating_sub(freed);
+        Ok(())
     }
 
     fn persist_node(&mut self, ino: Ino) -> Result<Hash> {
@@ -51,10 +72,12 @@ impl WorkTree {
         let Body::File(f) = &mut node.body else {
             unreachable!("caller matched a file");
         };
-        let list = f
-            .list
-            .as_mut()
-            .ok_or_else(|| Error::corrupt("dirty file not loaded"))?;
+        // Only metadata changed (it lives in the parent's entry): the content is unchanged.
+        let Some(list) = f.list.as_mut() else {
+            return f
+                .backing
+                .ok_or_else(|| Error::corrupt("file has neither data nor a backing object"));
+        };
         let held = list.mem_bytes();
         let obj = list.persist(store.as_ref(), block)?;
         self.dirty_bytes = self.dirty_bytes.saturating_sub(held);
@@ -66,11 +89,14 @@ impl WorkTree {
         let Body::Symlink(s) = &node.body else {
             unreachable!("caller matched a symlink");
         };
-        let target = s
-            .target
-            .as_ref()
-            .ok_or_else(|| Error::corrupt("dirty symlink without target"))?;
-        self.store.put_blob(target)
+        match (&s.target, s.backing) {
+            (Some(target), _) => self.store.put_blob(target),
+            // Only metadata changed: the target blob is unchanged.
+            (None, Some(existing)) => Ok(existing),
+            (None, None) => Err(Error::corrupt(
+                "symlink has neither a target nor a backing blob",
+            )),
+        }
     }
 
     fn persist_dir(&mut self, ino: Ino) -> Result<Hash> {

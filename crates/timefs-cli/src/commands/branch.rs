@@ -1,5 +1,6 @@
 use timefs_core::Repository;
 
+use super::guard::exclusive;
 use super::CmdResult;
 use crate::cli::BranchArgs;
 
@@ -7,6 +8,9 @@ pub fn run(repo: &Repository, args: BranchArgs) -> CmdResult {
     match (args.name, args.delete) {
         (None, _) => list(repo),
         (Some(name), true) => {
+            // The branch may be mounted with `--branch`; deleting it under the mount
+            // would let the next snapshot silently recreate it.
+            let _lock = exclusive(repo)?;
             repo.delete_branch(&name)?;
             println!("Deleted branch {name}");
             Ok(())

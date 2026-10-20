@@ -3,12 +3,18 @@
 use timefs_core::hostfs::{export_tree, import_dir};
 use timefs_core::Repository;
 
+use super::guard::{exclusive, require_snapshotted};
 use super::{author, CmdResult};
 use crate::cli::{ExportArgs, ImportArgs};
 use crate::format::human_bytes;
 
+/// Import a host directory as a new commit on the current branch. Moving the branch
+/// under a live mount would be reverted by its next snapshot, and moving it past a
+/// pending checkpoint would orphan that checkpoint, so both are refused.
 pub fn import(repo: &Repository, args: ImportArgs) -> CmdResult {
+    let _lock = exclusive(repo)?;
     let branch = repo.head_branch()?;
+    require_snapshotted(repo, &branch)?;
     let (tree, stats) = import_dir(repo.store().as_ref(), &args.dir, &args.chunker)?;
     let commit = repo.commit_to_branch(&branch, tree, &author(), &args.message)?;
     let store = repo.store().stats();

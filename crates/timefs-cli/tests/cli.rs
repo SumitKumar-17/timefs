@@ -195,3 +195,52 @@ fn snap_without_a_mount_reports_nothing_to_snapshot() {
     cli.commit(&[("f", "1")], "one");
     assert!(cli.ok(&["snap"]).contains("nothing to snapshot"));
 }
+
+#[test]
+fn import_refuses_while_a_checkpoint_is_pending() {
+    let cli = Cli::new();
+    cli.commit(&[("f", "1")], "one");
+    let repo = timefs_core::Repository::open(cli.repo()).unwrap();
+    let tip = repo.branch_tip("main").unwrap().unwrap();
+    repo.refs()
+        .write(&timefs_core::repo::wip_ref("main"), &tip)
+        .unwrap();
+    let log_before = cli.ok(&["log"]);
+
+    let src = cli.dir.path().join("other");
+    fs::create_dir_all(&src).unwrap();
+    fs::write(src.join("g"), "2").unwrap();
+    let err = cli.fails(&["import", src.to_str().unwrap(), "-m", "two"]);
+    assert!(err.contains("unsnapshotted"), "{err}");
+    assert_eq!(
+        cli.ok(&["log"]),
+        log_before,
+        "a refused import changes nothing"
+    );
+    assert!(repo.has_checkpoint("main").unwrap());
+}
+
+#[test]
+fn import_and_branch_delete_refuse_while_the_repository_is_locked() {
+    let cli = Cli::new();
+    cli.commit(&[("f", "1")], "one");
+    cli.ok(&["branch", "feature"]);
+    let repo = timefs_core::Repository::open(cli.repo()).unwrap();
+    let lock = repo.lock_exclusive().unwrap();
+
+    let src = cli.dir.path().join("other");
+    fs::create_dir_all(&src).unwrap();
+    let err = cli.fails(&["import", src.to_str().unwrap(), "-m", "two"]);
+    assert!(err.contains("mounted"), "{err}");
+    let err = cli.fails(&["branch", "-d", "feature"]);
+    assert!(err.contains("mounted"), "{err}");
+    assert!(
+        cli.ok(&["branch", "created-while-locked"])
+            .contains("Created"),
+        "branch creation moves no existing ref and stays unlocked"
+    );
+
+    drop(lock);
+    assert!(cli.ok(&["branch", "-d", "feature"]).contains("Deleted"));
+    cli.ok(&["import", src.to_str().unwrap(), "-m", "two"]);
+}

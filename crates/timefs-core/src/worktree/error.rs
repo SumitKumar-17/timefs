@@ -21,6 +21,8 @@ pub enum FsError {
     NotEmpty,
     #[error("file name too long")]
     NameTooLong,
+    #[error("file too large")]
+    FileTooBig,
     #[error("invalid argument: {0}")]
     InvalidArgument(&'static str),
     #[error("operation not supported: {0}")]

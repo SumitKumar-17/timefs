@@ -4,6 +4,7 @@ use std::collections::{BTreeSet, BinaryHeap, HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::error::{Error, Result};
@@ -120,11 +121,21 @@ impl Repository {
             .ok_or_else(|| Error::corrupt("HEAD is not a branch reference"))
     }
 
+    /// Point HEAD at `branch`. The write is atomic (temp file, fsync, rename, fsync dir)
+    /// because a torn HEAD would make every command fail.
     pub fn set_head_branch(&self, branch: &str) -> Result<()> {
         refs::validate_ref_name(&branch_ref(branch))?;
-        fs::write(
-            self.root.join(HEAD_FILE),
-            format!("ref: refs/heads/{branch}\n"),
+        // Unique per process and per call so concurrent writers never share a temp file.
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let tmp = self.root.join(format!(
+            ".{HEAD_FILE}.tmp-{}-{}",
+            std::process::id(),
+            SEQ.fetch_add(1, Ordering::Relaxed)
+        ));
+        refs::write_atomic(
+            &tmp,
+            &self.root.join(HEAD_FILE),
+            format!("ref: refs/heads/{branch}\n").as_bytes(),
         )?;
         Ok(())
     }
@@ -410,6 +421,30 @@ mod tests {
         r.delete_branch("dev").unwrap();
         r.set_head_branch("feature/x").unwrap();
         assert_eq!(r.head_branch().unwrap(), "feature/x");
+    }
+
+    #[test]
+    fn set_head_branch_round_trips_and_leaves_no_temp_files() {
+        let (_d, r) = repo();
+        for branch in ["dev", "feature/x", "main"] {
+            r.set_head_branch(branch).unwrap();
+            assert_eq!(r.head_branch().unwrap(), branch);
+        }
+        let leftovers: Vec<_> = fs::read_dir(r.root())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains("tmp"))
+            .collect();
+        assert!(
+            leftovers.is_empty(),
+            "temp files left behind: {leftovers:?}"
+        );
+        assert!(r.set_head_branch("bad..name").is_err());
+        assert_eq!(
+            r.head_branch().unwrap(),
+            "main",
+            "a rejected name leaves HEAD alone"
+        );
     }
 
     #[test]
