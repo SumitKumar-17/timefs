@@ -124,8 +124,7 @@ impl Engine {
         let commit =
             self.repo
                 .create_commit(tree, tip.into_iter().collect(), &self.author, "checkpoint")?;
-        // One sync covers the new tree objects and the commit object together.
-        self.repo.store().sync()?;
+        // `Refs::write` makes the new trees and the commit durable before the ref moves.
         self.repo.refs().write(&wip_ref(&self.branch), &commit)?;
         *self.last_persisted.lock().unwrap() = Some(tree);
         Ok(Some(commit))

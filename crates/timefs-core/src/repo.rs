@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::error::{Error, Result};
 use crate::hash::Hash;
 use crate::object::Commit;
-use crate::refs::{self, RefStore};
+use crate::refs::{self, FileRefs, Refs};
 use crate::store::{CachedStore, LooseStore, ObjectStore, ObjectStoreExt};
 use crate::timeutil::now_ns;
 
@@ -30,7 +30,7 @@ pub struct RepoLock {
 pub struct Repository {
     root: PathBuf,
     store: Arc<dyn ObjectStore>,
-    refs: RefStore,
+    refs: Arc<dyn Refs>,
 }
 
 impl Repository {
@@ -76,7 +76,8 @@ impl Repository {
         } else {
             Arc::new(CachedStore::new(disk, cache_bytes))
         };
-        let refs = RefStore::new(root.join("refs"));
+        let refs: Arc<dyn Refs> =
+            Arc::new(FileRefs::new(root.join("refs")).with_store(Arc::clone(&store)));
         Ok(Repository { root, store, refs })
     }
 
@@ -88,8 +89,8 @@ impl Repository {
         &self.store
     }
 
-    pub fn refs(&self) -> &RefStore {
-        &self.refs
+    pub fn refs(&self) -> &dyn Refs {
+        self.refs.as_ref()
     }
 
     /// Take the exclusive repository lock without blocking.
@@ -160,9 +161,8 @@ impl Repository {
         self.refs.delete(&branch_ref(name))
     }
 
-    /// Move a branch to `commit`. Objects are made durable first (write ordering invariant).
+    /// Move a branch to `commit`. `Refs::write` makes objects durable first.
     pub fn set_branch_tip(&self, branch: &str, commit: &Hash) -> Result<()> {
-        self.store.sync()?;
         self.refs.write(&branch_ref(branch), commit)
     }
 

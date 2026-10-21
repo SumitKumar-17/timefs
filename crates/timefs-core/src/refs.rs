@@ -1,15 +1,19 @@
 //! Mutable refs: the only mutable state in a repository.
 //!
-//! Each ref is a small text file holding one hex hash. Updates are crash safe:
-//! write a temp file, fsync it, rename over the target, fsync the directory.
+//! [`Refs`] is the interface; two backends implement it:
+//! * [`FileRefs`] (loose repositories): one small text file per ref, updated by writing a
+//!   temp file, fsyncing it, renaming it over the target and fsyncing the directory.
+//! * the pack store (`store::pack`): ref records in the same append-only log as objects.
 
 use std::fs::{self, File};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use crate::error::{Error, Result};
 use crate::hash::Hash;
+use crate::store::ObjectStore;
 
 pub const HEADS: &str = "heads";
 pub const WIP: &str = "wip";
@@ -31,25 +35,62 @@ pub fn validate_ref_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-pub struct RefStore {
+/// Named pointers to commits.
+pub trait Refs: Send + Sync {
+    fn read(&self, name: &str) -> Result<Option<Hash>>;
+
+    /// Make every object stored so far durable, then atomically set `name` to `hash`
+    /// (the write ordering invariant: a ref never points at an object that could be lost).
+    fn write(&self, name: &str, hash: &Hash) -> Result<()>;
+
+    /// Remove a ref; `RefNotFound` if it does not exist.
+    fn delete(&self, name: &str) -> Result<()>;
+
+    /// All refs under `prefix` (for example `heads`), sorted by name, with names relative to
+    /// `prefix`.
+    fn list(&self, prefix: &str) -> Result<Vec<(String, Hash)>>;
+
+    /// Create a ref; fails if it already exists.
+    fn create(&self, name: &str, hash: &Hash) -> Result<()> {
+        if self.read(name)?.is_some() {
+            return Err(Error::RefExists(name.to_string()));
+        }
+        self.write(name, hash)
+    }
+}
+
+/// One file per ref below `refs/`.
+pub struct FileRefs {
     dir: PathBuf,
+    /// Store whose objects must be durable before a ref moves. `None` only in unit tests
+    /// that exercise refs alone.
+    store: Option<Arc<dyn ObjectStore>>,
     tmp_seq: AtomicU64,
 }
 
-impl RefStore {
+impl FileRefs {
     pub fn new(refs_dir: impl Into<PathBuf>) -> Self {
-        RefStore {
+        FileRefs {
             dir: refs_dir.into(),
+            store: None,
             tmp_seq: AtomicU64::new(0),
         }
+    }
+
+    /// Sync `store` before every ref update.
+    pub fn with_store(mut self, store: Arc<dyn ObjectStore>) -> Self {
+        self.store = Some(store);
+        self
     }
 
     fn path(&self, name: &str) -> Result<PathBuf> {
         validate_ref_name(name)?;
         Ok(self.dir.join(name))
     }
+}
 
-    pub fn read(&self, name: &str) -> Result<Option<Hash>> {
+impl Refs for FileRefs {
+    fn read(&self, name: &str) -> Result<Option<Hash>> {
         match fs::read_to_string(self.path(name)?) {
             Ok(text) => Ok(Some(Hash::from_hex(text.trim_end_matches('\n'))?)),
             Err(e) if e.kind() == ErrorKind::NotFound => Ok(None),
@@ -57,9 +98,11 @@ impl RefStore {
         }
     }
 
-    /// Atomically set a ref, creating or replacing it.
-    pub fn write(&self, name: &str, hash: &Hash) -> Result<()> {
+    fn write(&self, name: &str, hash: &Hash) -> Result<()> {
         let path = self.path(name)?;
+        if let Some(store) = &self.store {
+            store.sync()?;
+        }
         let parent = path.parent().expect("ref path has a parent");
         fs::create_dir_all(parent)?;
         let tmp = self.dir.join(format!(
@@ -70,15 +113,7 @@ impl RefStore {
         Ok(write_atomic(&tmp, &path, format!("{hash}\n").as_bytes())?)
     }
 
-    /// Create a ref; fails if it already exists.
-    pub fn create(&self, name: &str, hash: &Hash) -> Result<()> {
-        if self.read(name)?.is_some() {
-            return Err(Error::RefExists(name.to_string()));
-        }
-        self.write(name, hash)
-    }
-
-    pub fn delete(&self, name: &str) -> Result<()> {
+    fn delete(&self, name: &str) -> Result<()> {
         let path = self.path(name)?;
         match fs::remove_file(&path) {
             Ok(()) => {
@@ -92,9 +127,7 @@ impl RefStore {
         }
     }
 
-    /// All refs under `prefix` (for example `heads`), as `(name, hash)` sorted by name.
-    /// Names are returned relative to `prefix`.
-    pub fn list(&self, prefix: &str) -> Result<Vec<(String, Hash)>> {
+    fn list(&self, prefix: &str) -> Result<Vec<(String, Hash)>> {
         validate_ref_name(prefix)?;
         let mut out = Vec::new();
         collect(&self.dir.join(prefix), String::new(), &mut out)?;
@@ -156,9 +189,9 @@ fn collect(dir: &Path, rel: String, out: &mut Vec<(String, Hash)>) -> Result<()>
 mod tests {
     use super::*;
 
-    fn refs() -> (tempfile::TempDir, RefStore) {
+    fn refs() -> (tempfile::TempDir, FileRefs) {
         let d = tempfile::tempdir().unwrap();
-        let r = RefStore::new(d.path().join("refs"));
+        let r = FileRefs::new(d.path().join("refs"));
         (d, r)
     }
 
