@@ -23,7 +23,7 @@ pub fn run(cfg: &Config) -> Res {
                 seed: 1,
             },
         )?;
-        let repo = Repository::init(work.join("repo"))?;
+        let repo = Repository::init_with(work.join("repo"), cfg.store)?;
         let base = import_commit(&repo, &src, &Chunker::default(), "base");
 
         for m in [1usize, 10, 100, 1000].into_iter().filter(|&m| 2 * m <= n) {

@@ -41,6 +41,7 @@ pub fn fsck(repo: &Repository) -> CmdResult {
 pub fn stats(repo: &Repository) -> CmdResult {
     let objects = repo.store().list()?;
     let stored: u64 = objects.iter().map(|o| o.size).sum();
+    println!("store:    {}", super::init::store_name(repo.store_kind()));
     println!("objects:  {}", objects.len());
     println!("stored:   {}", human_bytes(stored));
     println!("branches: {}", repo.branches()?.len());

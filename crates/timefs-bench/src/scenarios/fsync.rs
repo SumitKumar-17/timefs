@@ -19,7 +19,7 @@ pub fn run(cfg: &Config) -> Res {
     let ino = wt.create(ROOT_INO, b"journal", 0o644, 0, 0)?.ino;
     let mut rng = Rng::new(9);
 
-    let mut phases: [Vec<f64>; 5] = Default::default();
+    let mut phases: [Vec<f64>; 4] = Default::default();
     let mut new_objects = Vec::new();
     for round in 0..ROUNDS {
         wt.write(ino, (round * 4096) as u64, &rng.bytes(4096))?;
@@ -45,8 +45,7 @@ pub fn run(cfg: &Config) -> Res {
     let names = [
         "persist objects (no sync)",
         "create commit object",
-        "sync objects (fsync batch)",
-        "write ref (tmp, fsync, rename, fsync dir)",
+        "publish: sync objects, then write ref",
         "total",
     ];
     for (name, samples) in names.iter().zip(&phases) {
@@ -56,6 +55,9 @@ pub fn run(cfg: &Config) -> Res {
         "new objects per checkpoint".into(),
         format!("{:.0}", Summary::of(&new_objects).median),
     ]);
-    table.print("Checkpoint phase breakdown for append + fsync");
+    table.print(&format!(
+        "Checkpoint phase breakdown for append + fsync ({:?} store)",
+        cfg.store
+    ));
     Ok(())
 }

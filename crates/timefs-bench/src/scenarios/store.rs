@@ -32,7 +32,7 @@ pub fn run(cfg: &Config) -> Res {
                 seed: 1,
             },
         )?;
-        let repo = Repository::init(work.join("repo"))?;
+        let repo = Repository::init_with(work.join("repo"), cfg.store)?;
 
         let inodes_before = inodes_used(&work);
         let (_, import) = timed(|| import_commit(&repo, &src, &Chunker::default(), "base"));

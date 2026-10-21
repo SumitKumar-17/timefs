@@ -20,12 +20,12 @@ pub type CmdResult = Result<(), Box<dyn Error>>;
 
 pub fn run(cli: Cli) -> CmdResult {
     let repo_path = cli.repo;
-    if let Command::Init = cli.command {
-        return init::run(&repo_path);
+    if let Command::Init(args) = cli.command {
+        return init::run(&repo_path, args);
     }
     let repo = Repository::open(&repo_path)?;
     match cli.command {
-        Command::Init => unreachable!("handled above"),
+        Command::Init(_) => unreachable!("handled above"),
         Command::Import(args) => transfer::import(&repo, args),
         Command::Export(args) => transfer::export(&repo, args),
         Command::Log(args) => history::log(&repo, args),

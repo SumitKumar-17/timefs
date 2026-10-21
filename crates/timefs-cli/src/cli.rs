@@ -31,7 +31,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Command {
     /// Create a new, empty repository.
-    Init,
+    Init(InitArgs),
     /// Snapshot a host directory as a new commit on the current branch.
     Import(ImportArgs),
     /// Write the tree of a revision into an empty directory.
@@ -190,4 +190,19 @@ pub struct GcArgs {
     /// Report what would be deleted without deleting.
     #[arg(long)]
     pub dry_run: bool,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum StoreArg {
+    /// Objects and refs in one append-only log (recommended).
+    Pack,
+    /// One file per object and per ref.
+    Loose,
+}
+
+#[derive(Args)]
+pub struct InitArgs {
+    /// On-disk store layout.
+    #[arg(long, value_enum, default_value = "pack")]
+    pub store: StoreArg,
 }

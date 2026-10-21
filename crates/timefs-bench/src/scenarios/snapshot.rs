@@ -45,7 +45,7 @@ pub fn run(cfg: &Config) -> Res {
             "full size".into(),
         ]);
 
-        let repo = Repository::init(work.join("repo"))?;
+        let repo = Repository::init_with(work.join("repo"), cfg.store)?;
         let (_, import) = timed(|| import_commit(&repo, &src, &Chunker::default(), "initial"));
         let st = repo.store().stats();
         table.row(vec![

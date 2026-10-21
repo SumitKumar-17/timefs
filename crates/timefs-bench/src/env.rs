@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use timefs_core::chunk::Chunker;
 use timefs_core::hostfs::import_dir;
+use timefs_core::repo::StoreKind;
 use timefs_core::store::ObjectStore;
 use timefs_core::worktree::{Options, WorkTree};
 use timefs_core::{Hash, Repository};
@@ -21,6 +22,8 @@ pub struct Config {
     /// File counts for the scaling scenarios.
     pub sizes: Vec<usize>,
     pub file_size: usize,
+    /// Store layout for the repositories the scenarios create.
+    pub store: StoreKind,
 }
 
 impl Config {
@@ -38,7 +41,7 @@ impl Config {
 /// Create a repository in a fresh scratch directory.
 pub fn new_repo(cfg: &Config, name: &str) -> io::Result<Repository> {
     let dir = cfg.scratch(name)?;
-    Repository::init(dir.join("repo")).map_err(io::Error::other)
+    Repository::init_with(dir.join("repo"), cfg.store).map_err(io::Error::other)
 }
 
 /// Import `dir` and commit it on `main`; returns the commit.

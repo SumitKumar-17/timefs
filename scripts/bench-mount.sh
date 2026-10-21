@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Mount-level benchmark: ext4 vs tmpfs vs FUSE passthrough vs TimeFS.
 #
-# Usage: BENCH_ARGS="--repeat 3" scripts/bench-mount.sh [workdir]
+# Usage: BENCH_ARGS="--repeat 3" STORE=pack|loose scripts/bench-mount.sh [workdir]
 # The workdir must live on the disk under test (default: ./bench-out, not tmpfs).
 set -euo pipefail
 
@@ -40,7 +40,7 @@ mkdir -p "$RUN/ext4" "$RUN/passthrough-src" "$RUN/passthrough-mnt" "$RUN/timefs-
 PIDS+=($!)
 wait_mounted "$RUN/passthrough-mnt"
 
-"$BIN/timefs" --repo "$RUN/repo" init >/dev/null
+"$BIN/timefs" --repo "$RUN/repo" init --store "${STORE:-pack}" >/dev/null
 "$BIN/timefs" --repo "$RUN/repo" mount "$RUN/timefs-mnt" --checkpoint-interval 0 >/dev/null &
 PIDS+=($!)
 wait_mounted "$RUN/timefs-mnt"
@@ -49,4 +49,4 @@ wait_mounted "$RUN/timefs-mnt"
     --target "ext4=$RUN/ext4" \
     --target "tmpfs=/dev/shm/timefs-bench" \
     --target "fuse-passthrough=$RUN/passthrough-mnt" \
-    --target "timefs=$RUN/timefs-mnt"
+    --target "timefs-${STORE:-pack}=$RUN/timefs-mnt"

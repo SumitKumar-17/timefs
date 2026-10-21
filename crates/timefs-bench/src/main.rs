@@ -12,6 +12,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 use env::Config;
+use timefs_core::repo::StoreKind;
 
 #[derive(Parser)]
 #[command(name = "timefs-bench", about = "Benchmarks for TimeFS")]
@@ -28,6 +29,9 @@ struct Cli {
     /// Mean size of generated files in bytes.
     #[arg(long, default_value_t = 4096)]
     file_size: usize,
+    /// Store layout for core scenarios: `pack` or `loose`.
+    #[arg(long, default_value = "pack", value_parser = parse_store)]
+    store: StoreKind,
     #[command(subcommand)]
     command: Command,
 }
@@ -65,6 +69,7 @@ fn main() {
         repeat: cli.repeat.max(1),
         sizes: cli.sizes,
         file_size: cli.file_size,
+        store: cli.store,
     };
     if let Err(e) = std::fs::create_dir_all(&cfg.work) {
         eprintln!("timefs-bench: cannot create {}: {e}", cfg.work.display());
@@ -102,4 +107,12 @@ fn run_core(cfg: &Config, names: Vec<String>) -> scenarios::Res {
         scenarios::run(&name, cfg)?;
     }
     Ok(())
+}
+
+fn parse_store(s: &str) -> Result<StoreKind, String> {
+    match s {
+        "pack" => Ok(StoreKind::Pack),
+        "loose" => Ok(StoreKind::Loose),
+        other => Err(format!("unknown store {other:?} (expected pack or loose)")),
+    }
 }
