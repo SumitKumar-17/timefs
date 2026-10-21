@@ -45,16 +45,20 @@ fn sigkill_during_random_workload_keeps_synced_data() {
     let first_seed = env_u64("TIMEFS_CRASH_SEED").unwrap_or(DEFAULT_SEED);
     for round in 0..rounds {
         let seed = first_seed + round;
-        eprintln!("crash round {round}: seed {seed} (rerun with TIMEFS_CRASH_SEED={seed})");
-        if !run_round(seed, round == 0) {
+        // Alternate the two on-disk layouts so both recovery paths are exercised.
+        let store = if round % 2 == 0 { "pack" } else { "loose" };
+        eprintln!(
+            "crash round {round}: {store} store, seed {seed} (rerun with TIMEFS_CRASH_SEED={seed})"
+        );
+        if !run_round(seed, store, round == 0) {
             return;
         }
     }
 }
 
 /// Returns false when the round was skipped because FUSE turned out to be unusable.
-fn run_round(seed: u64, may_skip: bool) -> bool {
-    let env = RoundEnv::new();
+fn run_round(seed: u64, store: &str, may_skip: bool) -> bool {
+    let env = RoundEnv::new(store);
     let mut rng = Rng::new(seed);
     let mut state = Tree::default();
     let mut interval = checkpoint_interval(&mut rng);
@@ -202,14 +206,17 @@ struct RoundEnv {
 }
 
 impl RoundEnv {
-    fn new() -> Self {
+    fn new(store: &str) -> Self {
         let dir = tempfile::tempdir().unwrap();
         // Canonical, because the mount table lists canonical paths.
         let root = dir.path().canonicalize().unwrap();
         let repo = root.join("repo");
         let mnt = root.join("mnt");
         std::fs::create_dir(&mnt).unwrap();
-        let out = timefs(&repo).arg("init").output().unwrap();
+        let out = timefs(&repo)
+            .args(["init", "--store", store])
+            .output()
+            .unwrap();
         assert!(out.status.success(), "init failed");
         RoundEnv {
             _dir: dir,
