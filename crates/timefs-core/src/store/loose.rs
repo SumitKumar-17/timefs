@@ -23,7 +23,6 @@ const TMP_DIR: &str = "tmp";
 
 pub struct LooseStore {
     root: PathBuf,
-    verify_reads: bool,
     /// Objects created or reused since the last `sync`. Reused objects are included because
     /// an object left by a crashed process may exist without ever having been made durable.
     unsynced: Mutex<HashSet<PathBuf>>,
@@ -38,17 +37,10 @@ impl LooseStore {
         fs::create_dir_all(root.join(TMP_DIR))?;
         Ok(LooseStore {
             root,
-            verify_reads: true,
             unsynced: Mutex::new(HashSet::new()),
             tmp_seq: AtomicU64::new(0),
             counters: Counters::default(),
         })
-    }
-
-    /// Re-hash every object on read (default on). Disabling trades integrity for speed.
-    pub fn with_verify_reads(mut self, verify: bool) -> Self {
-        self.verify_reads = verify;
-        self
     }
 
     pub fn root(&self) -> &Path {
@@ -114,14 +106,13 @@ impl ObjectStore for LooseStore {
         let kind = ObjectKind::from_u8(tag[0])?;
         let mut payload = Vec::new();
         file.read_to_end(&mut payload)?;
-        if self.verify_reads {
-            let actual = Hash::of_object(kind, &payload);
-            if actual != *hash {
-                return Err(Error::HashMismatch {
-                    expected: *hash,
-                    actual,
-                });
-            }
+        // Always verify: the name is the checksum, so corruption is never served.
+        let actual = Hash::of_object(kind, &payload);
+        if actual != *hash {
+            return Err(Error::HashMismatch {
+                expected: *hash,
+                actual,
+            });
         }
         Ok((kind, payload))
     }

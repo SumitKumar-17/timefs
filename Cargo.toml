@@ -25,7 +25,6 @@ fuser = { version = "0.18", features = ["libfuse3"] }
 tempfile = "3"
 signal-hook = "0.3"
 proptest = "1"
-criterion = "0.5"
 
 [profile.release]
 lto = "thin"

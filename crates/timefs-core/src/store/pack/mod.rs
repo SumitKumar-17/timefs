@@ -69,7 +69,6 @@ struct Writer {
 
 pub struct PackStore {
     dir: PathBuf,
-    verify_reads: bool,
     segment_limit: u64,
     state: RwLock<State>,
     writer: Mutex<Option<Writer>>,
@@ -84,7 +83,6 @@ impl PackStore {
         let (state, _) = load(&dir)?;
         Ok(PackStore {
             dir,
-            verify_reads: true,
             segment_limit: DEFAULT_SEGMENT_LIMIT,
             state: RwLock::new(state),
             writer: Mutex::new(None),
@@ -321,14 +319,12 @@ impl ObjectStore for PackStore {
         let (loc, file) = self.lookup(hash).ok_or(Error::NotFound(*hash))?;
         let mut data = vec![0u8; loc.len as usize];
         file.read_exact_at(&mut data, loc.offset)?;
-        if self.verify_reads {
-            let actual = Hash::of_object(loc.kind, &data);
-            if actual != *hash {
-                return Err(Error::HashMismatch {
-                    expected: *hash,
-                    actual,
-                });
-            }
+        let actual = Hash::of_object(loc.kind, &data);
+        if actual != *hash {
+            return Err(Error::HashMismatch {
+                expected: *hash,
+                actual,
+            });
         }
         Ok((loc.kind, data))
     }

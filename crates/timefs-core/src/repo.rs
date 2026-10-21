@@ -95,11 +95,6 @@ impl Repository {
     }
 
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        Self::open_with_cache(path, DEFAULT_CACHE_BYTES)
-    }
-
-    /// Open with a specific object read-cache budget in bytes (0 disables caching).
-    pub fn open_with_cache(path: impl AsRef<Path>, cache_bytes: usize) -> Result<Self> {
         let root = path.as_ref().to_path_buf();
         let kind = match fs::read_to_string(root.join(FORMAT_FILE)) {
             Ok(text) => StoreKind::from_format_line(text.trim())
@@ -110,11 +105,7 @@ impl Repository {
             Err(e) => return Err(e.into()),
         };
         let with_cache = |disk: Arc<dyn ObjectStore>| -> Arc<dyn ObjectStore> {
-            if cache_bytes == 0 {
-                disk
-            } else {
-                Arc::new(CachedStore::new(disk, cache_bytes))
-            }
+            Arc::new(CachedStore::new(disk, DEFAULT_CACHE_BYTES))
         };
         let (store, refs): (Arc<dyn ObjectStore>, Arc<dyn Refs>) = match kind {
             StoreKind::Loose => {
