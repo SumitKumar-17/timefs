@@ -10,11 +10,15 @@
 | GC / fsck | Create garbage, check reachable data survives; corrupt an object, check detection | `timefs-core` |
 | CLI | End-to-end tests of the `timefs` binary | `timefs-cli/tests/cli.rs` |
 | FUSE | Real mounts driven with ordinary `std::fs` calls; skipped when `/dev/fuse` is unavailable | `timefs-fuse/tests/mount.rs` |
+| Crash injection | SIGKILL the real `timefs mount` daemon during a seeded random workload; then `fsck`, remount and require the recovered tree to be a state from the last acknowledged sync onward | `timefs-cli/tests/crash.rs` |
 | Conformance | pjdfstest / fsx / fsstress against a mount (manual or scheduled; M7, not started) | `scripts/` |
 
 ## Running
 
 * All tests: `cargo test --workspace`.
+* Crash injection: `TIMEFS_REQUIRE_FUSE=1 cargo test -p timefs-cli --test crash -- --test-threads=1`
+  (3 rounds of 3 crashes each). Longer runs: `TIMEFS_CRASH_ROUNDS=30`; replay a failing round
+  with the seed it prints: `TIMEFS_CRASH_SEED=<seed> TIMEFS_CRASH_ROUNDS=1`.
 * CI jobs: `check` (fmt, clippy with `-D warnings`, tests) and `fuse-integration` (real mount).
 
 ## Rules
