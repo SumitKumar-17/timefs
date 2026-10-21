@@ -7,7 +7,8 @@ and the ADRs in `docs/adr/` before changing design-level behaviour.
 
 * `crates/timefs-core`: all logic; **must not depend on FUSE**.
   * objects: `hash`, `codec`, `object`, `chunk`
-  * storage: `store/` (`ObjectStore` trait, `loose`, `cached`, `typed`), `refs`, `repo`
+  * storage: `store/` (`ObjectStore` trait, `pack/`, `loose`, `cached`, `sweep`, `typed`),
+    `refs` (`Refs` trait, `FileRefs`), `repo` (`StoreKind`)
   * trees: `treeops`, `hostfs` (import/export), `diff`, `merge/`, `reach`, `fsck`, `gc`
   * live tree: `worktree/` (`node`, `extents`, `dir_ops`, `file_ops`, `persist`, `lifetime`)
 * `crates/timefs-fuse`: thin `fuser` adapter (`fs`), persistence policy (`engine`),
@@ -42,8 +43,10 @@ If a test dies and leaves a mount: `fusermount3 -u <mountpoint>`.
 2. **Never fabricate results.** Test, benchmark and CI outcomes in docs/commit messages must come from actual runs.
 3. **Format stability.** Object encodings are canonical and hashed. Changing a byte layout
    requires a `FORMAT` version bump, a note in `docs/format.md`, and a migration plan.
-4. **Write ordering invariant.** Objects are durable before any ref references them; refs
-   change only via temp-file → fsync → rename → fsync(dir). Never weaken this.
+4. **Write ordering invariant.** Objects are durable before any ref references them. All ref
+   changes go through `Refs::write`, which enforces it: pack appends the ref record after the
+   objects and syncs once; loose syncs objects, then temp file, fsync, rename, fsync(dir).
+   Never weaken this.
 5. **No `unsafe`** in `timefs-core`. `unsafe` elsewhere needs a `// SAFETY:` justification.
 6. **No panics on untrusted bytes.** Decoding corrupt objects returns an error.
 7. **Errors:** typed errors (`thiserror`) in libraries; map to `errno` only in `timefs-fuse`.

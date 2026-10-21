@@ -1,6 +1,7 @@
-# ADR-0009: Log-structured pack store (proposed)
+# ADR-0009: Log-structured pack store
 
-**Status:** Proposed (triggered by the measurements ADR-0003 asked for; not implemented)
+**Status:** Accepted. Part 1 (pack log, refs in the log, compaction) implemented and the
+default store; part 2 (extent pages, format change) still proposed.
 
 ## Context
 Measured on the loose store (see [benchmarks.md](../benchmarks.md)):
@@ -15,7 +16,7 @@ Measured on the loose store (see [benchmarks.md](../benchmarks.md)):
 * **Flat extent lists** make the file object of a 32 MiB file at 4 KiB blocks about 280 KiB,
   rewritten on every checkpoint that touches the file (write amplification table, Q7).
 
-## Decision (proposed)
+## Decision
 * Add a second `ObjectStore` backend: append-only segment files plus an index.
   * Record: `len | kind | hash | payload | crc32`; objects are appended, never rewritten.
   * Index: hash to `(segment, offset, len)`, rebuilt by scanning segments when its own
@@ -25,8 +26,17 @@ Measured on the loose store (see [benchmarks.md](../benchmarks.md)):
   of four.
 * Recovery: replay the log; a torn tail record fails its CRC and is truncated.
 * GC becomes compaction: copy live records into a new segment, then drop old segments.
-* Split long extent lists into fixed-size extent pages referenced from the file object
-  (format version 2), so a small edit to a big file rewrites one page, not the whole list.
+* Part 2, not built yet: split long extent lists into fixed-size extent pages referenced
+  from the file object, so a small edit to a big file rewrites one page, not the whole list.
+
+## Implementation notes (part 1)
+* `timefs-core/src/store/pack/`: `record` (framing, scanning), `segment` (files), `mod` (store).
+* Index rebuild reads only record headers of sealed segments; the active segment is
+  fully verified because only it can be torn.
+* `synced` markers (one per batch after an `fdatasync`) separate torn tails from corruption
+  of data that was already durable; the latter fails the open loudly.
+* One writer process (`pack/WRITER` lock); readers in other processes see a consistent prefix.
+* Record checks use the first 8 bytes of BLAKE3 instead of a CRC: no new dependency.
 
 ## Alternatives
 * **Keep loose objects, call `syncfs(2)` once per checkpoint:** one round, but it flushes
@@ -36,8 +46,8 @@ Measured on the loose store (see [benchmarks.md](../benchmarks.md)):
 * **Embedded KV store:** still rejected for the reasons in ADR-0003.
 
 ## Consequences
-* Expected fsync latency close to one host fsync; to be confirmed by the same benchmarks.
+* fsync latency close to one host fsync: measured in [benchmarks.md](../benchmarks.md).
 * New code paths that need crash-injection tests: torn records, index rebuild, compaction
   interrupted halfway.
-* Format version 2 with a migration (`timefs migrate`), as required by `docs/format.md`.
+* Format 2 is a new layout chosen at `init`; existing loose repositories keep working (no automatic migration yet).
 * The loose backend stays as the simple, debuggable reference implementation.

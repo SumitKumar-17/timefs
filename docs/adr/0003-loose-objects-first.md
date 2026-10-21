@@ -1,6 +1,6 @@
 # ADR-0003: Loose-object store first, packs only if measured
 
-**Status:** Accepted (loose store implemented; packs not built)
+**Status:** Accepted, then superseded as the default by [ADR-0009](0009-log-structured-pack-store.md) (the loose store remains available)
 
 ## Context
 * One file per object is simple and crash-safe (write temp, `rename`).

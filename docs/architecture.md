@@ -133,22 +133,30 @@ flowchart LR
 
 ## 3. Components
 
-### 3.1 Object store (implemented)
+### 3.1 Object store and refs (implemented)
 
 ```text
-put(kind, bytes) -> Hash       // idempotent; writes tmp file + rename; dedupes by existence
-get(hash)        -> (kind, bytes)
-has(hash)        -> bool
-iter()           -> all hashes (for GC / fsck)
-delete(hash)
+ObjectStore: put, get, has, list, list_prefix, sync, sweep, stats
+Refs:        read, write (objects durable first, then the ref), delete, list, create
 ```
 
-* Backend: **loose objects** (`objects/<2 hex>/<62 hex>`), written atomically, reads verified against the hash.
-* A packed backend is only considered if benchmarks show loose-object overhead dominates ([ADR-0003](adr/0003-loose-objects-first.md)).
+| Backend | Objects | Refs | Durability of a checkpoint |
+|---|---|---|---|
+| **pack** (default, format 2) | records in append-only segment files | records in the same log | one `fdatasync` of the active segment |
+| **loose** (format 1) | one file per object (`objects/ab/cdef...`) | one file per ref | parallel fsync of new objects and their dirs, then temp file, fsync, rename, fsync dir |
+
+* Both verify every read against the object hash; a `CachedStore` read cache (64 MiB) sits in front.
+* Pack store ([ADR-0009](adr/0009-log-structured-pack-store.md)):
+  * In-memory index (hash to segment and offset) and ref table, rebuilt by scanning at open.
+  * One writer at a time (`pack/WRITER` lock taken on first write); any number of readers.
+  * Torn tails are trimmed; damage inside provably durable data fails loudly (sync markers).
+  * `sweep` is compaction: live records are copied into new segments, old ones deleted.
+* Loose store ([ADR-0003](adr/0003-loose-objects-first.md)) stays as the simple, inspectable
+  reference implementation (`timefs init --store loose`).
 
 ### 3.2 Repository (implemented)
 
-* Opens or creates a repo directory; owns the object store and refs.
+* Opens or creates a repo directory (`init --store pack|loose`); owns the object store and refs.
 * Takes the `LOCK` (`flock`) for exclusive operations.
 * Resolves revisions (`HEAD`, branch names, `rev~N`), creates commits, walks history, computes merge bases.
 * Runs GC and fsck.
@@ -273,7 +281,10 @@ stateDiagram-v2
 * Un-checkpointed data is lost on a crash, like any buffered filesystem without `fsync`.
 * The loss window is bounded by `fsync`, `--checkpoint-interval` (default 5 s) and `--flush-threshold-mib`.
 * A stale wip ref (parent is not the branch tip) is ignored on mount.
-* Ref updates: write temp, `fsync`, `rename`, `fsync(dir)`.
+* Ref updates go through `Refs::write`, which makes objects durable first: one log
+  `fdatasync` (pack) or object fsyncs plus temp file, `fsync`, `rename`, `fsync(dir)` (loose).
+* A mount refuses to checkpoint or snapshot if its branch moved underneath it.
+* Verified by a SIGKILL crash-injection test (`crates/timefs-cli/tests/crash.rs`) on both stores.
 
 ## 6. Merge
 
@@ -310,7 +321,9 @@ flowchart TD
 ## 7. Garbage collection
 
 * Mark: from every ref (`heads`, `wip`) walk commits, trees, files, blobs.
-* Sweep: delete unmarked objects older than the grace period (`--grace-secs`, default 3600).
+* Sweep (`ObjectStore::sweep`):
+  * pack: compaction into fresh segments (the writer lock rules out concurrent writers, so no grace period is needed);
+  * loose: delete unmarked objects older than the grace period (`--grace-secs`, default 3600).
 * `--dry-run` reports without deleting.
 * Requires the repo unmounted ([ADR-0008](adr/0008-stop-the-world-gc.md)).
 
@@ -319,17 +332,22 @@ flowchart TD
 * One daemon per repository (`flock` on `LOCK`).
 * A single mutex guards the `WorkTree`; FUSE worker threads (`--threads`, default 1) serialise on it.
 * Contention is measured before any finer locking is added.
-* Object store is safe for concurrent use (atomic create-by-rename; identical puts are benign).
+* Object stores are safe for concurrent use within a process.
+* Across processes: pack allows one writer (the mount) and many readers; loose writes are
+  atomic create-by-rename, so concurrent identical puts are benign.
 
 ## 9. Failure modes and how they are handled
 
 | Failure | Behaviour |
 |---------|-----------|
-| Crash mid-object-write | Temp file left behind; ignored and swept by GC; ref never points at it |
-| Crash mid-ref-update | `rename` is atomic: either old or new ref value |
+| Crash mid-write (pack) | Torn tail trimmed at the next open for writing; refs after it are dropped with it |
+| Crash mid-object-write (loose) | Temp file left behind and swept by GC; a torn object is rewritten on the next put |
+| Crash mid-ref-update (loose) | `rename` is atomic: either old or new ref value |
+| Bit rot in durable pack data | Opening fails with a corruption error instead of rolling back silently |
 | Torn / bit-rotted object | Detected on read (hash mismatch) → `EIO`; `fsck` reports it |
 | Disk full | `put` fails → FUSE op returns `ENOSPC`/`EIO`; previous refs intact |
 | Two daemons on one repo | Second fails to take `LOCK` and exits |
+| A second writer on a pack repo | Its first write fails with "locked"; reads keep working |
 | Daemon killed with dirty data | Recovered from last `refs/wip` checkpoint on next mount |
 
 ## 10. Known limitations (v1)
@@ -339,5 +357,6 @@ flowchart TD
 * No encryption or compression.
 * Whole-repo GC is stop-the-world; `merge`, `checkout`, `reset`, `gc` need the repo unmounted.
 * Inodes of touched nodes stay in memory.
-* Flat extent lists; very large files would want a two-level extent tree.
+* Flat extent lists; files are capped at 64 GiB until extent pages land (ADR-0009, part 2).
+* Pack repositories accept one writing process at a time (the mount), so `branch` cannot create refs while mounted.
 * See the [roadmap](roadmap.md) for planned work and the [ADRs](adr/) for reasoning.

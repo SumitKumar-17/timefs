@@ -30,6 +30,9 @@ flowchart LR
 * A mount is a mutable in-memory overlay (`WorkTree`) on a base commit; only dirty paths are written on commit.
 * Checkpoints (`fsync`, timer, size threshold, unmount) write `refs/wip/<branch>`; the next mount recovers from it.
 * Objects are written before any ref points at them, so a crash leaves only harmless garbage.
+* By default objects and refs live in one append-only log (the pack store): one `fdatasync`
+  makes a checkpoint durable, and recovery trims a torn tail without ever keeping a ref to
+  a lost object.
 * Branching is a new ref; merge is a 3-way tree merge with explicit conflicts.
 * `snap`, `checkpoint` and `status` talk to the running mount over a Unix socket in the repo.
 
@@ -39,7 +42,7 @@ flowchart LR
 cargo build --release          # binary: target/release/timefs
 export TIMEFS_REPO=~/my-repo   # or pass --repo <dir> to every command
 
-timefs init
+timefs init                    # pack store (default); --store loose for one file per object
 mkdir ~/mnt
 timefs mount ~/mnt &           # runs until unmounted (fusermount3 -u ~/mnt)
 echo hello > ~/mnt/a.txt
@@ -73,8 +76,9 @@ timefs stats                   # size and dedupe statistics
 * `merge`, `checkout`, `reset`, `gc` need the repo unmounted.
 * Inodes of touched nodes stay in memory for the life of the mount.
 * No compression.
-* Loose object store only (one file per object).
-* Single node, single writer.
+* Files are capped at 64 GiB (flat extent lists; extent pages are proposed in ADR-0009).
+* Single node; a pack repository has one writing process at a time (the mount).
+* No automatic migration between the loose and pack layouts yet.
 
 ## Documentation
 
