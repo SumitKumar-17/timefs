@@ -16,7 +16,7 @@ use std::time::Duration;
 use crate::error::{Error, Result};
 use crate::hash::{Hash, HASH_LEN};
 use crate::object::ObjectKind;
-use crate::store::{ObjectInfo, ObjectStore, StoreStats};
+use crate::store::{sweep_by_deletion, ObjectInfo, ObjectStore, StoreStats, SweepReport};
 
 const TMP_DIR: &str = "tmp";
 
@@ -214,17 +214,12 @@ impl ObjectStore for LooseStore {
         result
     }
 
-    fn clean_temp(&self, older_than: Duration) -> Result<u64> {
-        let mut removed = 0;
-        for entry in fs::read_dir(self.root.join(TMP_DIR))? {
-            let entry = entry?;
-            let age = entry.metadata()?.modified()?.elapsed().unwrap_or_default();
-            if age >= older_than {
-                fs::remove_file(entry.path())?;
-                removed += 1;
-            }
+    fn sweep(&self, keep: &HashSet<Hash>, grace: Duration, dry_run: bool) -> Result<SweepReport> {
+        let mut report = sweep_by_deletion(self, keep, grace, dry_run)?;
+        if !dry_run {
+            report.temp_files_removed = self.clean_temp(grace)?;
         }
-        Ok(removed)
+        Ok(report)
     }
 
     fn stats(&self) -> StoreStats {
@@ -237,6 +232,22 @@ impl ObjectStore for LooseStore {
             dedup_bytes: c.dedup_bytes.load(Ordering::Relaxed),
             gets: c.gets.load(Ordering::Relaxed),
         }
+    }
+}
+
+impl LooseStore {
+    /// Remove leftover temporary files of interrupted writes older than `older_than`.
+    fn clean_temp(&self, older_than: Duration) -> Result<u64> {
+        let mut removed = 0;
+        for entry in fs::read_dir(self.root.join(TMP_DIR))? {
+            let entry = entry?;
+            let age = entry.metadata()?.modified()?.elapsed().unwrap_or_default();
+            if age >= older_than {
+                fs::remove_file(entry.path())?;
+                removed += 1;
+            }
+        }
+        Ok(removed)
     }
 }
 

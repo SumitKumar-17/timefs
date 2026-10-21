@@ -1,13 +1,15 @@
 //! Content-addressed object storage.
 //!
 //! [`ObjectStore`] is the backend boundary: the rest of the engine only sees this trait, so
-//! alternative backends (for example a packed store, see ADR-0003) stay a local change.
+//! alternative backends (loose files, the append-only pack log) stay a local change.
 
 mod cached;
 mod loose;
+mod sweep;
 mod typed;
 
-use std::time::SystemTime;
+use std::collections::HashSet;
+use std::time::{Duration, SystemTime};
 
 use crate::error::Result;
 use crate::hash::Hash;
@@ -15,6 +17,7 @@ use crate::object::ObjectKind;
 
 pub use cached::{CacheStats, CachedStore};
 pub use loose::LooseStore;
+pub use sweep::{sweep_by_deletion, SweepReport};
 pub use typed::ObjectStoreExt;
 
 /// Metadata about one stored object, produced by [`ObjectStore::list`].
@@ -58,11 +61,10 @@ pub trait ObjectStore: Send + Sync {
     /// point at them (the write ordering invariant).
     fn sync(&self) -> Result<()>;
 
-    /// Remove leftover temporary files from interrupted writes older than `older_than`.
-    /// Returns how many were removed. Backends without temporary files do nothing.
-    fn clean_temp(&self, _older_than: std::time::Duration) -> Result<u64> {
-        Ok(0)
-    }
+    /// Reclaim the space of every object not in `keep`. Objects younger than `grace` may be
+    /// kept by backends that cannot rule out a concurrent writer. With `dry_run` nothing
+    /// changes and the report says what would happen. The caller holds the repository lock.
+    fn sweep(&self, keep: &HashSet<Hash>, grace: Duration, dry_run: bool) -> Result<SweepReport>;
 
     fn stats(&self) -> StoreStats;
 }

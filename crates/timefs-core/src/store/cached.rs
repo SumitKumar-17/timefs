@@ -6,14 +6,14 @@
 //! old one (promoting on a hit); when the young generation fills half the budget it becomes
 //! the old one and the previous old generation is dropped. All operations are O(1).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::error::Result;
 use crate::hash::Hash;
 use crate::object::ObjectKind;
-use crate::store::{ObjectInfo, ObjectStore, StoreStats};
+use crate::store::{ObjectInfo, ObjectStore, StoreStats, SweepReport};
 
 type Entry = (ObjectKind, Arc<Vec<u8>>);
 
@@ -128,8 +128,18 @@ impl ObjectStore for CachedStore {
         self.inner.sync()
     }
 
-    fn clean_temp(&self, older_than: std::time::Duration) -> Result<u64> {
-        self.inner.clean_temp(older_than)
+    fn sweep(
+        &self,
+        keep: &HashSet<Hash>,
+        grace: std::time::Duration,
+        dry_run: bool,
+    ) -> Result<SweepReport> {
+        let report = self.inner.sweep(keep, grace, dry_run)?;
+        if !dry_run {
+            // Deleted objects must not be served from memory afterwards.
+            *self.gens.lock().unwrap() = Generations::default();
+        }
+        Ok(report)
     }
 
     fn stats(&self) -> StoreStats {

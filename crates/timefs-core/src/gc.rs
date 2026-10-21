@@ -4,7 +4,7 @@
 //! older than a grace period. Requires the exclusive repository lock, which is why the
 //! caller must pass a `&RepoLock`.
 
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
 use crate::error::{Error, Result};
 use crate::fsck::{collect_roots, FsckReport};
@@ -29,16 +29,8 @@ impl Default for GcOptions {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct GcReport {
-    pub examined: u64,
-    pub reachable: u64,
-    pub deleted: u64,
-    pub bytes_freed: u64,
-    /// Unreachable but kept because of the grace period.
-    pub kept_recent: u64,
-    pub temp_files_removed: u64,
-}
+/// What a collection did; the same counters every store backend reports.
+pub use crate::store::SweepReport as GcReport;
 
 pub fn gc(repo: &Repository, _lock: &RepoLock, opts: GcOptions) -> Result<GcReport> {
     let store = repo.store().as_ref();
@@ -65,29 +57,7 @@ pub fn gc(repo: &Repository, _lock: &RepoLock, opts: GcOptions) -> Result<GcRepo
         )));
     }
 
-    let mut report = GcReport::default();
-    let now = SystemTime::now();
-    for info in store.list()? {
-        report.examined += 1;
-        if reach.objects.contains(&info.hash) {
-            report.reachable += 1;
-            continue;
-        }
-        let age = now.duration_since(info.modified).unwrap_or_default();
-        if age < opts.grace {
-            report.kept_recent += 1;
-            continue;
-        }
-        if !opts.dry_run {
-            store.delete(&info.hash)?;
-        }
-        report.deleted += 1;
-        report.bytes_freed += info.size;
-    }
-    if !opts.dry_run {
-        report.temp_files_removed = store.clean_temp(opts.grace)?;
-    }
-    Ok(report)
+    store.sweep(&reach.objects, opts.grace, opts.dry_run)
 }
 
 #[cfg(test)]
