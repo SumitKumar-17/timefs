@@ -61,6 +61,7 @@ timefs merge main              # 3-way merge; add --resolve ours|theirs on confl
 timefs reset <rev>             # move the branch to a revision
 timefs gc --dry-run            # then: timefs gc [--grace-secs N]
 timefs fsck                    # verify every object and ref
+timefs migrate <dir> --store pack  # copy into a new repository with the other layout
 timefs stats                   # size and dedupe statistics
 ```
 
@@ -78,7 +79,6 @@ timefs stats                   # size and dedupe statistics
 * No compression.
 * Files are capped at 64 GiB (flat extent lists; extent pages are proposed in ADR-0009).
 * Single node; a pack repository has one writing process at a time (the mount).
-* No automatic migration between the loose and pack layouts yet.
 
 ## Documentation
 

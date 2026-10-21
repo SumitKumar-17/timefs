@@ -4,11 +4,13 @@ use std::time::Duration;
 
 use timefs_core::fsck::fsck as run_fsck;
 use timefs_core::gc::{gc as run_gc, GcOptions};
+use timefs_core::migrate::copy_repository;
+use timefs_core::repo::StoreKind;
 use timefs_core::{treeops, Repository};
 
 use super::guard::exclusive;
 use super::CmdResult;
-use crate::cli::GcArgs;
+use crate::cli::{GcArgs, MigrateArgs};
 use crate::format::human_bytes;
 
 pub fn fsck(repo: &Repository) -> CmdResult {
@@ -91,5 +93,26 @@ pub fn gc(repo: &Repository, args: GcArgs) -> CmdResult {
     if r.temp_files_removed > 0 {
         println!("Removed {} stale temporary files", r.temp_files_removed);
     }
+    Ok(())
+}
+
+/// Copy into a new repository; the lock keeps a mount from changing the source meanwhile.
+pub fn migrate(repo: &Repository, args: MigrateArgs) -> CmdResult {
+    let _lock = exclusive(repo)?;
+    let kind = StoreKind::from(args.store);
+    let report = copy_repository(repo, &args.dest, kind)?;
+    println!(
+        "Copied {} objects ({}) and {} refs into a {} repository at {}",
+        report.objects,
+        human_bytes(report.bytes),
+        report.refs,
+        super::init::store_name(kind),
+        args.dest.display()
+    );
+    let check = run_fsck(&Repository::open(&args.dest)?)?;
+    if !check.is_clean() {
+        return Err("the new repository failed fsck; keep using the original".into());
+    }
+    println!("Verified with fsck. Point TIMEFS_REPO (or --repo) at the new directory to use it.");
     Ok(())
 }

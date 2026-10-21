@@ -41,6 +41,7 @@ pub fn run(cli: Cli) -> CmdResult {
         Command::Checkout(args) => switch::checkout(&repo, args),
         Command::Reset(args) => switch::reset(&repo, args),
         Command::Gc(args) => maintenance::gc(&repo, args),
+        Command::Migrate(args) => maintenance::migrate(&repo, args),
         Command::Fsck => maintenance::fsck(&repo),
         Command::Stats => maintenance::stats(&repo),
     }

@@ -49,5 +49,6 @@ Measured on the loose store (see [benchmarks.md](../benchmarks.md)):
 * fsync latency close to one host fsync: measured in [benchmarks.md](../benchmarks.md).
 * New code paths that need crash-injection tests: torn records, index rebuild, compaction
   interrupted halfway.
-* Format 2 is a new layout chosen at `init`; existing loose repositories keep working (no automatic migration yet).
+* Format 2 is a new layout chosen at `init`; existing loose repositories keep working and
+  `timefs migrate <dest> --store pack` copies one into the new layout (hash-preserving, verified by fsck).
 * The loose backend stays as the simple, debuggable reference implementation.

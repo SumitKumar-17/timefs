@@ -13,6 +13,7 @@ pub mod gc;
 pub mod hash;
 pub mod hostfs;
 pub mod merge;
+pub mod migrate;
 pub mod object;
 pub mod reach;
 pub mod refs;

@@ -244,3 +244,27 @@ fn import_and_branch_delete_refuse_while_the_repository_is_locked() {
     assert!(cli.ok(&["branch", "-d", "feature"]).contains("Deleted"));
     cli.ok(&["import", src.to_str().unwrap(), "-m", "two"]);
 }
+
+#[test]
+fn migrate_copies_a_repository_into_the_other_layout() {
+    let cli = Cli::new();
+    cli.commit(&[("f.txt", "one")], "first");
+    cli.commit(&[("f.txt", "two")], "second");
+    let dest = cli.dir.path().join("migrated");
+    let out = cli.ok(&["migrate", dest.to_str().unwrap(), "--store", "loose"]);
+    assert!(out.contains("Verified with fsck"), "{out}");
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_timefs"))
+            .env("TIMEFS_REPO", &dest)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    assert_eq!(
+        String::from_utf8(run(&["cat", "HEAD~1", "f.txt"]).stdout).unwrap(),
+        "one"
+    );
+    assert!(String::from_utf8(run(&["stats"]).stdout)
+        .unwrap()
+        .contains("store:    loose"));
+}

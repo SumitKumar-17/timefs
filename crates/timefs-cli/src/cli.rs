@@ -62,6 +62,8 @@ pub enum Command {
     Reset(ResetArgs),
     /// Delete objects that no branch or checkpoint references (repository must be unmounted).
     Gc(GcArgs),
+    /// Copy the repository into a new directory with another store layout.
+    Migrate(MigrateArgs),
     /// Verify the integrity of every object and ref.
     Fsck,
     /// Show repository size and deduplication statistics.
@@ -203,6 +205,15 @@ pub enum StoreArg {
 #[derive(Args)]
 pub struct InitArgs {
     /// On-disk store layout.
+    #[arg(long, value_enum, default_value = "pack")]
+    pub store: StoreArg,
+}
+
+#[derive(Args)]
+pub struct MigrateArgs {
+    /// Directory for the new repository (must not exist yet).
+    pub dest: PathBuf,
+    /// Layout of the new repository.
     #[arg(long, value_enum, default_value = "pack")]
     pub store: StoreArg,
 }
