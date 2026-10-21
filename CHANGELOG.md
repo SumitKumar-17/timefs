@@ -8,6 +8,13 @@ No release has been tagged yet.
 
 ### Added
 
+* Pack store (format 2, now the default): objects and refs in one append-only log, one
+  `fdatasync` per checkpoint, torn-tail trimming, sync markers that turn damage of durable
+  data into a loud error, single-writer lock, compaction as GC (ADR-0009).
+* `Refs` trait whose `write` makes objects durable first; `FileRefs` for the loose layout.
+* `timefs init --store pack|loose`, `timefs migrate <dest> --store ...`, store kind in `stats`.
+* SIGKILL crash-injection test that alternates both stores (`crates/timefs-cli/tests/crash.rs`).
+
 * Design docs: motivation, architecture, canonical on-disk format v1, ADRs, testing
   and benchmark methodology, roadmap, contributor guide, CI skeleton.
 * Core objects: BLAKE3 identity, canonical binary codec (rejects non-minimal varints and

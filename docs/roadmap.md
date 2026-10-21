@@ -18,12 +18,12 @@ project state; update it in the same commit that changes the state.
 
 ## Candidate future work (not committed)
 
-* Log-structured pack store with refs in the log and extent pages (ADR-0009, proposed from M6 measurements).
+* Extent pages for large files (ADR-0009 part 2); lifts the 64 GiB file cap.
+* Concurrent writers on a pack repository (route offline ref changes through the mount).
 * Compression (zstd) per object.
 * Line-level text merge for "both modified a regular file".
 * Live `merge`/`checkout` against a mounted tree with kernel cache invalidation.
 * Virtual read-only `/.snapshots/<id>/` view inside the mount.
-* Two-level extent tree for very large files.
 * Replication ("send the hashes the other side lacks").
 * Extended attributes, hard links via inode objects.
 
@@ -31,6 +31,7 @@ project state; update it in the same commit that changes the state.
 
 Newest first. One line per notable change; link commits or benchmark runs when relevant.
 
+* 2026-10-21, M7: pack store (ADR-0009 part 1) as default, migrate command, SIGKILL crash test on both stores.
 * 2026-10-20, M6 done: results in benchmarks.md; review fixes landed (150 tests); M7 hardening started.
 * 2026-10-20, M6: parallel fsync, read cache, kernel page cache; measured before/after in benchmarks.md.
 * 2026-10-20, M5 done: 3-way merge, GC, checkout, reset, offline snap (116 tests).
