@@ -4,7 +4,9 @@
 //! alternative backends (loose files, the append-only pack log) stay a local change.
 
 mod cached;
+mod counters;
 mod loose;
+pub mod pack;
 mod sweep;
 mod typed;
 
@@ -17,6 +19,7 @@ use crate::object::ObjectKind;
 
 pub use cached::{CacheStats, CachedStore};
 pub use loose::LooseStore;
+pub use pack::PackStore;
 pub use sweep::{sweep_by_deletion, SweepReport};
 pub use typed::ObjectStoreExt;
 

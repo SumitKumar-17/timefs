@@ -16,19 +16,10 @@ use std::time::Duration;
 use crate::error::{Error, Result};
 use crate::hash::{Hash, HASH_LEN};
 use crate::object::ObjectKind;
+use crate::store::counters::Counters;
 use crate::store::{sweep_by_deletion, ObjectInfo, ObjectStore, StoreStats, SweepReport};
 
 const TMP_DIR: &str = "tmp";
-
-#[derive(Default)]
-struct Counters {
-    puts: AtomicU64,
-    new_objects: AtomicU64,
-    new_bytes: AtomicU64,
-    dedup_hits: AtomicU64,
-    dedup_bytes: AtomicU64,
-    gets: AtomicU64,
-}
 
 pub struct LooseStore {
     root: PathBuf,
@@ -99,27 +90,19 @@ impl ObjectStore for LooseStore {
     fn put(&self, kind: ObjectKind, payload: &[u8]) -> Result<Hash> {
         let hash = Hash::of_object(kind, payload);
         let stored_len = payload.len() as u64 + 1;
-        self.counters.puts.fetch_add(1, Ordering::Relaxed);
-
         let path = self.object_path(&hash);
         if is_intact(&path, stored_len)? {
-            self.counters.dedup_hits.fetch_add(1, Ordering::Relaxed);
-            self.counters
-                .dedup_bytes
-                .fetch_add(stored_len, Ordering::Relaxed);
+            self.counters.deduplicated(stored_len);
         } else {
             self.write_new(&path, kind, payload)?;
-            self.counters.new_objects.fetch_add(1, Ordering::Relaxed);
-            self.counters
-                .new_bytes
-                .fetch_add(stored_len, Ordering::Relaxed);
+            self.counters.stored_new(stored_len);
         }
         self.unsynced.lock().unwrap().insert(path);
         Ok(hash)
     }
 
     fn get(&self, hash: &Hash) -> Result<(ObjectKind, Vec<u8>)> {
-        self.counters.gets.fetch_add(1, Ordering::Relaxed);
+        self.counters.read();
         let mut file = match File::open(self.object_path(hash)) {
             Ok(f) => f,
             Err(e) if e.kind() == ErrorKind::NotFound => return Err(Error::NotFound(*hash)),
@@ -223,15 +206,7 @@ impl ObjectStore for LooseStore {
     }
 
     fn stats(&self) -> StoreStats {
-        let c = &self.counters;
-        StoreStats {
-            puts: c.puts.load(Ordering::Relaxed),
-            new_objects: c.new_objects.load(Ordering::Relaxed),
-            new_bytes: c.new_bytes.load(Ordering::Relaxed),
-            dedup_hits: c.dedup_hits.load(Ordering::Relaxed),
-            dedup_bytes: c.dedup_bytes.load(Ordering::Relaxed),
-            gets: c.gets.load(Ordering::Relaxed),
-        }
+        self.counters.snapshot()
     }
 }
 
