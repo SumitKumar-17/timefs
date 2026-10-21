@@ -357,6 +357,6 @@ flowchart TD
 * No encryption or compression.
 * Whole-repo GC is stop-the-world; `merge`, `checkout`, `reset`, `gc` need the repo unmounted.
 * Inodes of touched nodes stay in memory.
-* Flat extent lists; files are capped at 64 GiB until extent pages land (ADR-0009, part 2).
+* Files up to 1 PiB; long extent lists are paged and holes are stored sparsely (ADR-0009, part 2).
 * Pack repositories accept one writing process at a time (the mount), so `branch` cannot create refs while mounted.
 * See the [roadmap](roadmap.md) for planned work and the [ADRs](adr/) for reasoning.

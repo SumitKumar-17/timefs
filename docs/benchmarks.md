@@ -65,8 +65,9 @@ unless marked M6 (`4fcdcfb`, loose store).
   recovered a valid state in every one of its runs on both stores.
 * **Storage overhead is near zero with the pack store:** 100,000 files of 4 KiB: 410 MiB on
   disk for 401 MiB stored, 3 host inodes (loose: 1006 MiB, 201,269 inodes).
-* **Still not cheap:** the flat extent list of large files (up to 70x write amplification for
-  a single 4 KiB write at 4 KiB blocks), and memory for touched inodes. See open bottlenecks.
+* **Small edits to big files** now cost one extent page plus the block itself: one 4 KiB
+  write to a 32 MiB file at 4 KiB blocks writes 42.4 KiB (was 280.1 KiB in M6).
+* **Still not cheap:** memory for touched inodes. See open bottlenecks.
 
 ### Pack store vs loose store (M7, `2f421f6`)
 
@@ -289,12 +290,13 @@ Every change was measured with the scenario named; numbers are medians.
 | 4 | every read opened, read and BLAKE3-verified a whole block | `CachedStore`: two-generation read cache (64 MiB); immutable objects never go stale | warm seq read 821 to 2114 MB/s; cold 4K random read 15.3k to 42.0k IOPS (mount workloads) | yes |
 | 5 | three fsync rounds per object sync | one combined parallel round (files, dirs, root) | fsync latency not better (A/B, 3 runs each: 9.5 to 10.9 ms vs 8.9 to 9.9 ms for two rounds) | no, reverted to two rounds |
 | 6 | kernel dropped its page cache on every open | `FOPEN_KEEP_CACHE` (all writes go through the mount) | warm seq read 2114 to 6539 MB/s; open+read+close 18.2k to 31.8k /s | yes |
+| 8 | a small edit to a big file rewrote its whole flat extent list (Q7) | pages of 1024 extents behind a `FileIndex`, holes as extents without blobs | one 4 KiB write, 32 MiB file, 4 KiB blocks: 280.1 KiB to 42.4 KiB written (10.6x instead of 70x); 16 KiB blocks: 86.1 to 51.1 KiB (amplification scenario, `8825815`) | yes |
 | 7 | loose store: two journal rounds for objects plus two for the ref; one file and inode per object | pack store (ADR-0009): objects and refs in one log, one `fdatasync` per checkpoint | mount fsync 35.3 to 2.0 ms in the same session; 100k-file import 45.3 s to 4.1 s; disk usage 1006 to 410 MiB | yes, default |
 
 ### Open bottlenecks (measured, not yet fixed)
 
-* **Flat extent lists:** a 4 KiB write to a 32 MiB file at 4 KiB blocks rewrites a 280 KiB
-  file object (Q7); extent pages (ADR-0009 part 2) bound this and lift the 64 GiB file cap.
 * **Inode memory:** nodes of every touched path stay in memory for the life of a mount.
 * Resolved in M7 by the pack store: fsync latency, small-object disk and inode overhead, and
   the slow initial import (all measured above).
+* Resolved in M7 by extent pages and hole extents: write amplification of small edits to big
+  files (entry 8 of the optimisation log) and the 64 GiB file cap.

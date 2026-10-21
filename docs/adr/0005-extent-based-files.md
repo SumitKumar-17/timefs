@@ -20,4 +20,4 @@
 
 ## Consequences
 * Offset to extent lookup needs a prefix-sum / binary search.
-* Flat extent lists get long for huge files; a two-level extent tree is a future change needing a format bump.
+* Long extent lists are paged and holes are stored as extents without blobs ([ADR-0009](0009-log-structured-pack-store.md), part 2).

@@ -83,6 +83,7 @@ On read the store may re-hash and compare with the file name (`--verify`, always
 | 2 | File   | `varint n` then n × (`hash`, `varint len`) |
 | 3 | Tree   | `varint n` then n × entry, sorted by `name` bytewise ascending, names unique |
 | 4 | Commit | see below |
+| 5 | FileIndex | `varint n` then n × (`hash` of a File page, `varint size`, `varint extents`) |
 
 ### Tree entry
 
@@ -98,6 +99,15 @@ hash         file → File object · dir → Tree object · symlink → Blob obj
 ```
 
 An empty file is a `File` object with zero extents.
+
+### Long files and holes
+
+* A tree entry of kind file names a `File` object or, for more than 1024 extents, a
+  `FileIndex` whose pages are `File` objects of at most 1024 extents each. Page `size` and
+  `extents` must match the page, otherwise the file is corrupt.
+* An extent whose hash is all zero bytes is a **hole**: `len` zero bytes, no blob behind it.
+* Both were added before the first release; readers of earlier development builds cannot
+  read files that use them.
 
 ### Commit
 

@@ -12,6 +12,8 @@ No release has been tagged yet.
   `fdatasync` per checkpoint, torn-tail trimming, sync markers that turn damage of durable
   data into a loud error, single-writer lock, compaction as GC (ADR-0009).
 * `Refs` trait whose `write` makes objects durable first; `FileRefs` for the loose layout.
+* Paged extent lists (`FileIndex`, object kind 5) and hole extents: a small edit to a big file
+  rewrites one page; sparse files cost one extent per hole; files up to 1 PiB.
 * `timefs init --store pack|loose`, `timefs migrate <dest> --store ...`, store kind in `stats`.
 * SIGKILL crash-injection test that alternates both stores (`crates/timefs-cli/tests/crash.rs`).
 
@@ -63,7 +65,8 @@ No release has been tagged yet.
 * A failed `sync` dropped its pending list, so a later sync could report success over
   objects that were never made durable.
 * Unlinked-but-open files kept their data in memory forever; checkpoints now spill it.
-* Files larger than 64 GiB are refused with `EFBIG` instead of hanging a checkpoint.
+* Files larger than the size limit are refused with `EFBIG` instead of hanging a checkpoint
+  (the limit is now 1 PiB, see Added).
 * A mount no longer overwrites a branch that moved underneath it (checkpoint and snapshot
   refuse), and a checkpoint equal to the branch state is cleared instead of written.
 * Unlinked files report `nlink` 0; `RENAME_WHITEOUT` is rejected with `EINVAL`.

@@ -14,4 +14,4 @@ that links back, instead of being rewritten.
 | [0006](0006-merge-semantics.md) | Tree-level 3-way merge, explicit conflicts | Accepted |
 | [0007](0007-control-plane.md) | Unix-socket control plane + offline repo commands | Accepted |
 | [0008](0008-stop-the-world-gc.md) | Stop-the-world mark-and-sweep GC with grace period | Accepted |
-| [0009](0009-log-structured-pack-store.md) | Log-structured pack store, refs in the log, extent pages | Accepted (extent pages proposed) |
+| [0009](0009-log-structured-pack-store.md) | Log-structured pack store, refs in the log, extent pages | Accepted |

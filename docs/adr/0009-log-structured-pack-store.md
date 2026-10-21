@@ -1,7 +1,7 @@
 # ADR-0009: Log-structured pack store
 
-**Status:** Accepted. Part 1 (pack log, refs in the log, compaction) implemented and the
-default store; part 2 (extent pages, format change) still proposed.
+**Status:** Accepted and implemented. Part 1: pack log, refs in the log, compaction (the
+default store). Part 2: paged extent lists and hole extents.
 
 ## Context
 Measured on the loose store (see [benchmarks.md](../benchmarks.md)):
@@ -26,8 +26,15 @@ Measured on the loose store (see [benchmarks.md](../benchmarks.md)):
   of four.
 * Recovery: replay the log; a torn tail record fails its CRC and is truncated.
 * GC becomes compaction: copy live records into a new segment, then drop old segments.
-* Part 2, not built yet: split long extent lists into fixed-size extent pages referenced
-  from the file object, so a small edit to a big file rewrites one page, not the whole list.
+* Part 2: split long extent lists into pages of 1024 extents behind a `FileIndex` object,
+  so a small edit to a big file rewrites one page and the index; store holes as extents
+  with a reserved hash instead of one zero-block reference per block.
+
+## Implementation notes (part 2)
+* `timefs-core/src/filedata.rs` stores and loads file objects; `put_file`/`get_file` use it.
+* Files of up to 1024 extents stay one flat `File`, so existing repositories are unchanged.
+* Measured: one 4 KiB write to a 32 MiB file at 4 KiB blocks now writes 42.4 KiB (was
+  280.1 KiB); the file size limit went from 64 GiB to 1 PiB.
 
 ## Implementation notes (part 1)
 * `timefs-core/src/store/pack/`: `record` (framing, scanning), `segment` (files), `mod` (store).

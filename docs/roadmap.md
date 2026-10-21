@@ -18,7 +18,6 @@ project state; update it in the same commit that changes the state.
 
 ## Candidate future work (not committed)
 
-* Extent pages for large files (ADR-0009 part 2); lifts the 64 GiB file cap.
 * Concurrent writers on a pack repository (route offline ref changes through the mount).
 * Compression (zstd) per object.
 * Line-level text merge for "both modified a regular file".

@@ -77,7 +77,6 @@ timefs stats                   # size and dedupe statistics
 * `merge`, `checkout`, `reset`, `gc` need the repo unmounted.
 * Inodes of touched nodes stay in memory for the life of the mount.
 * No compression.
-* Files are capped at 64 GiB (flat extent lists; extent pages are proposed in ADR-0009).
 * Single node; a pack repository has one writing process at a time (the mount).
 
 ## Documentation
