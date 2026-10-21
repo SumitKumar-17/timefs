@@ -42,3 +42,7 @@ jobs:
         env:
           TIMEFS_REQUIRE_FUSE: "1"
         run: cargo test -p timefs-fuse -- --test-threads=1
+      - name: Run SIGKILL crash-injection test (both stores)
+        env:
+          TIMEFS_REQUIRE_FUSE: "1"
+        run: cargo test -p timefs-cli --test crash -- --test-threads=1
