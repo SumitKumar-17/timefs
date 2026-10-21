@@ -1,10 +1,8 @@
 //! File data as a list of segments: the engine behind file reads, writes and truncation.
 //!
 //! A segment is stored (a blob in the repository, loaded on demand), in memory (modified
-//! bytes), or a hole (zeros). Writes only touch the segments they overlap, so random writes
+//! bytes), or a hole (zeros, persisted as a hole extent that needs no blob). Writes only touch the segments they overlap, so random writes
 //! never rewrite a whole file.
-
-use std::collections::HashMap;
 
 use crate::error::{Error, Result};
 use crate::hash::Hash;
@@ -37,14 +35,7 @@ pub struct ExtentList {
 impl ExtentList {
     pub fn from_file(file: &FileObj) -> Self {
         ExtentList {
-            segs: file
-                .extents
-                .iter()
-                .map(|e| Segment::Stored {
-                    hash: e.hash,
-                    len: e.len,
-                })
-                .collect(),
+            segs: file.extents.iter().map(segment_of).collect(),
             size: file.size(),
             mem_bytes: 0,
         }
@@ -144,7 +135,6 @@ impl ExtentList {
     /// every segment is `Stored` and no memory is held.
     pub fn persist(&mut self, store: &dyn ObjectStore, block: usize) -> Result<FileObj> {
         let mut extents = Vec::with_capacity(self.segs.len());
-        let mut zero_blobs: HashMap<usize, Hash> = HashMap::new();
         for seg in &self.segs {
             match seg {
                 Segment::Stored { hash, len } => extents.push(Extent {
@@ -159,34 +149,10 @@ impl ExtentList {
                         });
                     }
                 }
-                Segment::Hole(len) => {
-                    let mut left = *len;
-                    while left > 0 {
-                        let n = left.min(block as u64) as usize;
-                        let hash = match zero_blobs.get(&n) {
-                            Some(h) => *h,
-                            None => {
-                                let h = store.put_blob(&vec![0u8; n])?;
-                                zero_blobs.insert(n, h);
-                                h
-                            }
-                        };
-                        extents.push(Extent {
-                            hash,
-                            len: n as u64,
-                        });
-                        left -= n as u64;
-                    }
-                }
+                Segment::Hole(len) => extents.push(Extent::hole(*len)),
             }
         }
-        self.segs = extents
-            .iter()
-            .map(|e| Segment::Stored {
-                hash: e.hash,
-                len: e.len,
-            })
-            .collect();
+        self.segs = extents.iter().map(segment_of).collect();
         self.mem_bytes = 0;
         Ok(FileObj { extents })
     }
@@ -313,6 +279,18 @@ impl ExtentList {
     }
 }
 
+/// The in-memory form of a persisted extent: holes stay holes.
+fn segment_of(e: &Extent) -> Segment {
+    if e.is_hole() {
+        Segment::Hole(e.len)
+    } else {
+        Segment::Stored {
+            hash: e.hash,
+            len: e.len,
+        }
+    }
+}
+
 fn load_blob(store: &dyn ObjectStore, hash: &Hash, expected_len: u64) -> Result<Vec<u8>> {
     let blob = store.get_blob(hash)?;
     if blob.len() as u64 != expected_len {
@@ -383,17 +361,21 @@ mod tests {
     }
 
     #[test]
-    fn holes_persist_as_shared_zero_blobs() {
+    fn holes_persist_as_hole_extents_without_blobs() {
         let (_d, s) = store();
         let mut l = ExtentList::default();
-        l.truncate(&s, 100).unwrap();
+        l.truncate(&s, 1 << 40).unwrap();
+        l.write(&s, 1 << 39, b"middle", BLOCK).unwrap();
         let obj = l.persist(&s, BLOCK).unwrap();
-        assert_eq!(obj.size(), 100);
-        // 12 full zero blocks + a 4 byte tail: two distinct blobs
-        let distinct: std::collections::HashSet<_> = obj.extents.iter().map(|e| e.hash).collect();
-        assert_eq!(distinct.len(), 2);
-        let back = ExtentList::from_file(&obj).read(&s, 0, 200).unwrap();
-        assert_eq!(back, vec![0u8; 100]);
+        assert_eq!(obj.size(), 1 << 40);
+        assert_eq!(
+            obj.extents.len(),
+            3,
+            "hole, data, hole: no per-block entries"
+        );
+        assert_eq!(s.stats().new_objects, 1, "only the data block is stored");
+        let back = ExtentList::from_file(&obj);
+        assert_eq!(back.read(&s, (1 << 39) - 2, 10).unwrap(), b"\0\0middle\0\0");
     }
 
     #[test]

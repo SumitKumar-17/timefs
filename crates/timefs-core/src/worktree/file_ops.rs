@@ -11,10 +11,9 @@ use crate::store::{ObjectStore, ObjectStoreExt};
 
 const PERM_MASK: u32 = 0o7777;
 
-/// Largest supported file. Holes are stored as references to a shared zero block, one per
-/// block of the hole, so the extent list grows with the logical size; this bound keeps a
-/// single checkpoint finite (see ADR-0009 for extent pages, which would lift it).
-pub const MAX_FILE_SIZE: u64 = 64 * 1024 * 1024 * 1024;
+/// Largest supported file (1 PiB). Holes cost one extent each and long extent lists are
+/// paged, so the bound only keeps offset arithmetic far from overflow.
+pub const MAX_FILE_SIZE: u64 = 1 << 50;
 
 fn check_size(end: u64) -> FsResult<()> {
     if end > MAX_FILE_SIZE {

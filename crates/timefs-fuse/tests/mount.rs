@@ -251,3 +251,53 @@ fn statfs_reports_the_host_volume() {
     assert!(out.status.success());
     m.unmount().unwrap();
 }
+
+#[test]
+fn a_terabyte_sparse_file_costs_almost_nothing() {
+    let env = Env::new();
+    let path = env.mnt.join("sparse.img");
+    {
+        let m = mount_or_skip!(env);
+        let f = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .open(&path)
+            .unwrap();
+        f.set_len(1 << 40).unwrap();
+        std::os::unix::fs::FileExt::write_all_at(&f, b"needle", (1 << 39) + 3).unwrap();
+        f.sync_all().unwrap();
+        drop(f);
+        m.unmount().unwrap();
+    }
+    let used: u64 = walk_size(&env.repo);
+    assert!(
+        used < 1 << 20,
+        "repository grew by {used} bytes for a sparse file"
+    );
+
+    let m = mount_or_skip!(env);
+    assert_eq!(fs::metadata(&path).unwrap().len(), 1 << 40);
+    let f = File::open(&path).unwrap();
+    let mut buf = [0u8; 10];
+    std::os::unix::fs::FileExt::read_exact_at(&f, &mut buf, (1 << 39) + 1).unwrap();
+    assert_eq!(&buf, b"\0\0needle\0\0");
+    drop(f);
+    m.unmount().unwrap();
+}
+
+/// Bytes of all files below `dir`.
+fn walk_size(dir: &std::path::Path) -> u64 {
+    fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap())
+        .map(|e| {
+            let meta = e.metadata().unwrap();
+            if meta.is_dir() {
+                walk_size(&e.path())
+            } else {
+                meta.len()
+            }
+        })
+        .sum()
+}

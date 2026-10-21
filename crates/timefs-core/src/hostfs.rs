@@ -91,9 +91,14 @@ fn import_tree(
 fn import_file(store: &dyn ObjectStore, path: &Path, chunker: &Chunker) -> Result<(Hash, u64)> {
     let mut extents = Vec::new();
     chunker.for_each_chunk(File::open(path)?, |chunk| {
-        extents.push(Extent {
-            hash: store.put_blob(chunk)?,
-            len: chunk.len() as u64,
+        // All-zero blocks become holes: no blob, and the file stays sparse on export.
+        extents.push(if chunk.iter().all(|&b| b == 0) {
+            Extent::hole(chunk.len() as u64)
+        } else {
+            Extent {
+                hash: store.put_blob(chunk)?,
+                len: chunk.len() as u64,
+            }
         });
         Ok(())
     })?;
@@ -153,12 +158,19 @@ fn export_dir(
     Ok(())
 }
 
+/// Write a file's data; holes are skipped over so the copy is sparse too.
 fn write_file(store: &dyn ObjectStore, file: &Hash, path: &Path) -> Result<()> {
-    use std::io::Write;
+    use std::io::{Seek, SeekFrom, Write};
+    let obj = store.get_file(file)?;
     let mut out = File::create(path)?;
-    for extent in store.get_file(file)?.extents {
-        out.write_all(&store.get_blob(&extent.hash)?)?;
+    for extent in &obj.extents {
+        if extent.is_hole() {
+            out.seek(SeekFrom::Current(extent.len as i64))?;
+        } else {
+            out.write_all(&store.get_blob(&extent.hash)?)?;
+        }
     }
+    out.set_len(obj.size())?;
     Ok(())
 }
 

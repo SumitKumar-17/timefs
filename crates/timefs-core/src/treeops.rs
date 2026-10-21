@@ -35,11 +35,15 @@ pub fn root_entry(tree: Hash) -> TreeEntry {
     }
 }
 
-/// Concatenate a file's extents.
+/// Concatenate a file's extents (holes read as zeros).
 pub fn read_file(store: &dyn ObjectStore, file: &Hash) -> Result<Vec<u8>> {
     let obj = store.get_file(file)?;
     let mut out = Vec::with_capacity(obj.size() as usize);
     for extent in &obj.extents {
+        if extent.is_hole() {
+            out.resize(out.len() + extent.len as usize, 0);
+            continue;
+        }
         let blob = store.get_blob(&extent.hash)?;
         if blob.len() as u64 != extent.len {
             return Err(Error::corrupt(format!(
