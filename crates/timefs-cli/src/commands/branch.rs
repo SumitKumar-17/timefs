@@ -1,4 +1,5 @@
-use timefs_core::Repository;
+use timefs_core::{Error, Hash, Repository};
+use timefs_fuse::control::request;
 
 use super::guard::exclusive;
 use super::CmdResult;
@@ -17,10 +18,44 @@ pub fn run(repo: &Repository, args: BranchArgs) -> CmdResult {
         }
         (Some(name), false) => {
             let start = repo.resolve(&args.start)?;
-            repo.create_branch(&name, &start)?;
-            println!("Created branch {name} at {}", start.short());
+            match repo.create_branch(&name, &start) {
+                Ok(()) => {
+                    println!("Created branch {name} at {}", start.short());
+                    Ok(())
+                }
+                // A pack repository has one writer: while it is mounted, the mount must
+                // write the ref, so ask it over the control socket.
+                Err(Error::Locked) => create_through_mount(repo, &name, &start),
+                Err(e) => Err(e.into()),
+            }
+        }
+    }
+}
+
+fn create_through_mount(repo: &Repository, name: &str, start: &Hash) -> CmdResult {
+    let reply = request(
+        &repo.control_socket_path(),
+        &format!("branch {name} {start}"),
+    )
+    .map_err(|e| format!("the repository is locked and no mount answered ({e})"))?;
+    match reply.strip_prefix("ok ") {
+        Some(rest) => {
+            print!("{}", capitalise(rest));
             Ok(())
         }
+        None => Err(reply
+            .trim_end()
+            .trim_start_matches("err ")
+            .to_string()
+            .into()),
+    }
+}
+
+fn capitalise(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().chain(chars).collect(),
+        None => String::new(),
     }
 }
 

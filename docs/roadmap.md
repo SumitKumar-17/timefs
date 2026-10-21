@@ -18,7 +18,6 @@ project state; update it in the same commit that changes the state.
 
 ## Candidate future work (not committed)
 
-* Concurrent writers on a pack repository (route offline ref changes through the mount).
 * Compression (zstd) per object.
 * Line-level text merge for "both modified a regular file".
 * Live `merge`/`checkout` against a mounted tree with kernel cache invalidation.

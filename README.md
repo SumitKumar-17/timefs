@@ -77,7 +77,7 @@ timefs stats                   # size and dedupe statistics
 * `merge`, `checkout`, `reset`, `gc` need the repo unmounted.
 * Inodes of touched nodes stay in memory for the life of the mount.
 * No compression.
-* Single node; a pack repository has one writing process at a time (the mount).
+* Single node; a pack repository has one writing process at a time (the mount does writes, including branch creation, while mounted).
 
 ## Documentation
 

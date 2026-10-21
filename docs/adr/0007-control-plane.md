@@ -3,11 +3,11 @@
 **Status:** Accepted (implemented)
 
 ## Context
-* The live working tree is in the daemon's memory, so `snap`, `checkpoint` and `status` must run in the daemon.
+* The live working tree is in the daemon's memory, so `snap`, `checkpoint`, `branch <name> <commit>` and `status` must run in the daemon.
 * Other commands only need the repository.
 
 ## Decision
-* The daemon listens on `<repo>/timefs.sock` with a newline-delimited text protocol: `snap [message]`, `checkpoint`, `status`.
+* The daemon listens on `<repo>/timefs.sock` with a newline-delimited text protocol: `snap [message]`, `checkpoint`, `branch <name> <commit>`, `status`.
 * The CLI uses the socket when a daemon runs; `snap` falls back to an offline snapshot when none is running.
 * `merge`, `checkout`, `reset` and `gc` take the repo `flock` and refuse with "the repository is mounted; unmount it first" if a daemon holds it.
 * `log`, `ls`, `cat`, `diff`, `branch`, `fsck`, `stats` operate directly on the repository.

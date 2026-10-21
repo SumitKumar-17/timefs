@@ -135,6 +135,10 @@ fn execute(cmd: Command, shared: &Shared) -> String {
             Ok(None) => "ok nothing to checkpoint\n".to_string(),
             Err(e) => format!("err {e}\n"),
         },
+        Command::Branch { name, at } => match shared.engine().repo().create_branch(&name, &at) {
+            Ok(()) => format!("ok created branch {name} at {}\n", at.short()),
+            Err(e) => format!("err {e}\n"),
+        },
         Command::Status => {
             let wt = shared.lock();
             format!(

@@ -15,6 +15,7 @@ No release has been tagged yet.
 * Paged extent lists (`FileIndex`, object kind 5) and hole extents: a small edit to a big file
   rewrites one page; sparse files cost one extent per hole; files up to 1 PiB.
 * `timefs init --store pack|loose`, `timefs migrate <dest> --store ...`, store kind in `stats`.
+* `timefs branch <name>` works while a pack repository is mounted (sent to the mount).
 * SIGKILL crash-injection test that alternates both stores (`crates/timefs-cli/tests/crash.rs`).
 
 * Design docs: motivation, architecture, canonical on-disk format v1, ADRs, testing

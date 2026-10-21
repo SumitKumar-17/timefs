@@ -212,7 +212,8 @@ flowchart TB
 * Unix socket `<repo>/timefs.sock`, newline-delimited text protocol.
 * Each request is one line of at most 4 KiB; connections get 2 s read and write timeouts, so an idle client cannot block other requests or unmount.
 * `timefs mount` exits non-zero if the final checkpoint fails, and only then skips the "changes checkpointed" message.
-* Requests: `snap [message]`, `checkpoint`, `status`.
+* Requests: `snap [message]`, `checkpoint`, `status`, `branch <name> <commit>`.
+* `timefs branch <name>` uses the `branch` request when a mount holds the pack writer lock.
 * Offline commands (`log`, `ls`, `cat`, `diff`, `branch`, `fsck`, `stats`) work directly on the repository.
 * `merge`, `checkout`, `reset`, `gc` take the repo `LOCK` and fail with "the repository is mounted; unmount it first" if a daemon holds it ([ADR-0007](adr/0007-control-plane.md)).
 
@@ -358,5 +359,5 @@ flowchart TD
 * Whole-repo GC is stop-the-world; `merge`, `checkout`, `reset`, `gc` need the repo unmounted.
 * Inodes of touched nodes stay in memory.
 * Files up to 1 PiB; long extent lists are paged and holes are stored sparsely (ADR-0009, part 2).
-* Pack repositories accept one writing process at a time (the mount), so `branch` cannot create refs while mounted.
+* Pack repositories accept one writing process at a time (the mount); branch creation goes through the mount, while `merge`, `checkout`, `reset`, `gc`, `import` and `branch -d` need it unmounted.
 * See the [roadmap](roadmap.md) for planned work and the [ADRs](adr/) for reasoning.

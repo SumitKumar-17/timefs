@@ -301,3 +301,29 @@ fn walk_size(dir: &std::path::Path) -> u64 {
         })
         .sum()
 }
+
+#[test]
+fn branches_can_be_created_through_the_mount_while_it_holds_the_writer_lock() {
+    let env = Env::new();
+    let m = mount_or_skip!(env);
+    fs::write(env.mnt.join("f"), "data").unwrap();
+    assert!(request(&env.socket(), "snap base")
+        .unwrap()
+        .starts_with("ok created"));
+
+    // A second process cannot write to the pack log while the mount owns it...
+    let other = env.open_repo();
+    let tip = other.resolve("main").unwrap();
+    let err = other.create_branch("direct", &tip).unwrap_err();
+    assert!(matches!(err, timefs_core::Error::Locked), "{err}");
+    // ...so it asks the mount to do it.
+    let reply = request(&env.socket(), &format!("branch feature {tip}")).unwrap();
+    assert!(reply.starts_with("ok created branch feature"), "{reply}");
+    assert!(request(&env.socket(), &format!("branch feature {tip}"))
+        .unwrap()
+        .starts_with("err"));
+    m.unmount().unwrap();
+
+    let repo = env.open_repo();
+    assert_eq!(repo.branch_tip("feature").unwrap(), Some(tip));
+}
