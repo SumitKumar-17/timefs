@@ -88,12 +88,17 @@ mod tests {
     use super::*;
     use crate::chunk::Chunker;
     use crate::hostfs::import_dir;
+    use crate::repo::StoreKind;
     use crate::store::ObjectStoreExt;
     use std::fs;
 
     fn repo_with_commit() -> (tempfile::TempDir, Repository, Hash) {
+        repo_with_commit_in(StoreKind::Pack)
+    }
+
+    fn repo_with_commit_in(kind: StoreKind) -> (tempfile::TempDir, Repository, Hash) {
         let d = tempfile::tempdir().unwrap();
-        let repo = Repository::init(d.path().join("repo")).unwrap();
+        let repo = Repository::init_with(d.path().join("repo"), kind).unwrap();
         let src = d.path().join("src");
         fs::create_dir(&src).unwrap();
         fs::write(src.join("f"), vec![5u8; 150_000]).unwrap();
@@ -112,8 +117,8 @@ mod tests {
     }
 
     #[test]
-    fn flipped_byte_is_reported_as_corrupt() {
-        let (d, repo, _) = repo_with_commit();
+    fn flipped_byte_in_a_loose_object_is_reported_as_corrupt() {
+        let (d, repo, _) = repo_with_commit_in(StoreKind::Loose);
         let victim = repo.store().list().unwrap()[0].hash;
         let hex = victim.to_hex();
         let path = d
@@ -130,8 +135,8 @@ mod tests {
     }
 
     #[test]
-    fn deleted_object_is_reported_as_missing() {
-        let (_d, repo, _) = repo_with_commit();
+    fn deleted_loose_object_is_reported_as_missing() {
+        let (_d, repo, _) = repo_with_commit_in(StoreKind::Loose);
         let blob = repo
             .store()
             .list()
@@ -152,5 +157,24 @@ mod tests {
         let r = fsck(&repo).unwrap();
         assert!(r.is_clean());
         assert_eq!(r.unreachable, 1);
+    }
+
+    #[test]
+    fn flipped_byte_in_durable_pack_data_is_reported_as_corrupt() {
+        let (d, repo, _) = repo_with_commit();
+        // A second commit makes the first one's data provably durable (a sync marker
+        // follows it in the log).
+        let tree = repo
+            .get_commit(&repo.resolve("HEAD").unwrap())
+            .unwrap()
+            .tree;
+        repo.commit_to_branch("main", tree, "t", "second").unwrap();
+        drop(repo);
+        let segment = d.path().join("repo/pack/seg-00000001.log");
+        let mut bytes = fs::read(&segment).unwrap();
+        bytes[100] ^= 1; // inside the first object's data
+        fs::write(&segment, bytes).unwrap();
+        let err = Repository::open(d.path().join("repo")).err().unwrap();
+        assert!(err.to_string().contains("already durable"), "{err}");
     }
 }

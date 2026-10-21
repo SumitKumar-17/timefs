@@ -11,16 +11,43 @@ use crate::error::{Error, Result};
 use crate::hash::Hash;
 use crate::object::Commit;
 use crate::refs::{self, FileRefs, Refs};
-use crate::store::{CachedStore, LooseStore, ObjectStore, ObjectStoreExt};
+use crate::store::{CachedStore, LooseStore, ObjectStore, ObjectStoreExt, PackStore};
 use crate::timeutil::now_ns;
 
 const FORMAT_FILE: &str = "FORMAT";
-const FORMAT_LINE: &str = "timefs-repo 1";
+const LOOSE_FORMAT: &str = "timefs-repo 1";
+const PACK_FORMAT: &str = "timefs-repo 2";
 const HEAD_FILE: &str = "HEAD";
 const LOCK_FILE: &str = "LOCK";
 const DEFAULT_BRANCH: &str = "main";
 /// Read cache size for objects (immutable, so it never needs invalidation).
 pub const DEFAULT_CACHE_BYTES: usize = 64 * 1024 * 1024;
+
+/// How objects and refs are stored on disk (see `docs/format.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoreKind {
+    /// One file per object and per ref (format 1).
+    Loose,
+    /// Objects and refs in an append-only log (format 2, ADR-0009).
+    Pack,
+}
+
+impl StoreKind {
+    fn format_line(self) -> &'static str {
+        match self {
+            StoreKind::Loose => LOOSE_FORMAT,
+            StoreKind::Pack => PACK_FORMAT,
+        }
+    }
+
+    fn from_format_line(line: &str) -> Option<Self> {
+        match line {
+            LOOSE_FORMAT => Some(StoreKind::Loose),
+            PACK_FORMAT => Some(StoreKind::Pack),
+            _ => None,
+        }
+    }
+}
 
 /// Held while a process has exclusive use of the repository. Released on drop.
 pub struct RepoLock {
@@ -29,13 +56,19 @@ pub struct RepoLock {
 
 pub struct Repository {
     root: PathBuf,
+    kind: StoreKind,
     store: Arc<dyn ObjectStore>,
     refs: Arc<dyn Refs>,
 }
 
 impl Repository {
-    /// Create a new repository at `path` (the directory is created if missing).
+    /// Create a new repository at `path` with the default store (the pack log).
     pub fn init(path: impl AsRef<Path>) -> Result<Self> {
+        Self::init_with(path, StoreKind::Pack)
+    }
+
+    /// Create a new repository at `path` (the directory is created if missing).
+    pub fn init_with(path: impl AsRef<Path>, kind: StoreKind) -> Result<Self> {
         let root = path.as_ref().to_path_buf();
         if root.join(FORMAT_FILE).exists() {
             return Err(Error::Invalid(format!(
@@ -43,15 +76,21 @@ impl Repository {
                 root.display()
             )));
         }
-        fs::create_dir_all(root.join("objects"))?;
-        fs::create_dir_all(root.join("refs").join(refs::HEADS))?;
-        fs::create_dir_all(root.join("refs").join(refs::WIP))?;
+        match kind {
+            StoreKind::Loose => {
+                fs::create_dir_all(root.join("objects"))?;
+                fs::create_dir_all(root.join("refs").join(refs::HEADS))?;
+                fs::create_dir_all(root.join("refs").join(refs::WIP))?;
+            }
+            StoreKind::Pack => fs::create_dir_all(root.join("pack"))?,
+        }
         File::create(root.join(LOCK_FILE))?;
         fs::write(
             root.join(HEAD_FILE),
             format!("ref: refs/heads/{DEFAULT_BRANCH}\n"),
         )?;
-        fs::write(root.join(FORMAT_FILE), format!("{FORMAT_LINE}\n"))?;
+        // FORMAT last: a half-initialised directory is not mistaken for a repository.
+        fs::write(root.join(FORMAT_FILE), format!("{}\n", kind.format_line()))?;
         Self::open(root)
     }
 
@@ -62,23 +101,42 @@ impl Repository {
     /// Open with a specific object read-cache budget in bytes (0 disables caching).
     pub fn open_with_cache(path: impl AsRef<Path>, cache_bytes: usize) -> Result<Self> {
         let root = path.as_ref().to_path_buf();
-        match fs::read_to_string(root.join(FORMAT_FILE)) {
-            Ok(text) if text.trim() == FORMAT_LINE => {}
-            Ok(text) => return Err(Error::UnsupportedFormat(text.trim().to_string())),
+        let kind = match fs::read_to_string(root.join(FORMAT_FILE)) {
+            Ok(text) => StoreKind::from_format_line(text.trim())
+                .ok_or_else(|| Error::UnsupportedFormat(text.trim().to_string()))?,
             Err(e) if e.kind() == ErrorKind::NotFound => {
                 return Err(Error::NotARepository(root.display().to_string()))
             }
             Err(e) => return Err(e.into()),
-        }
-        let disk: Arc<dyn ObjectStore> = Arc::new(LooseStore::open(root.join("objects"))?);
-        let store: Arc<dyn ObjectStore> = if cache_bytes == 0 {
-            disk
-        } else {
-            Arc::new(CachedStore::new(disk, cache_bytes))
         };
-        let refs: Arc<dyn Refs> =
-            Arc::new(FileRefs::new(root.join("refs")).with_store(Arc::clone(&store)));
-        Ok(Repository { root, store, refs })
+        let with_cache = |disk: Arc<dyn ObjectStore>| -> Arc<dyn ObjectStore> {
+            if cache_bytes == 0 {
+                disk
+            } else {
+                Arc::new(CachedStore::new(disk, cache_bytes))
+            }
+        };
+        let (store, refs): (Arc<dyn ObjectStore>, Arc<dyn Refs>) = match kind {
+            StoreKind::Loose => {
+                let store = with_cache(Arc::new(LooseStore::open(root.join("objects"))?));
+                let refs = FileRefs::new(root.join("refs")).with_store(Arc::clone(&store));
+                (store, Arc::new(refs))
+            }
+            StoreKind::Pack => {
+                let pack = Arc::new(PackStore::open(root.join("pack"))?);
+                (with_cache(Arc::clone(&pack) as Arc<dyn ObjectStore>), pack)
+            }
+        };
+        Ok(Repository {
+            root,
+            kind,
+            store,
+            refs,
+        })
+    }
+
+    pub fn store_kind(&self) -> StoreKind {
+        self.kind
     }
 
     pub fn root(&self) -> &Path {

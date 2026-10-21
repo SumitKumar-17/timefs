@@ -66,6 +66,7 @@ mod tests {
     use crate::chunk::Chunker;
     use crate::fsck::fsck;
     use crate::hostfs::import_dir;
+    use crate::repo::StoreKind;
     use crate::store::ObjectStoreExt;
     use std::fs;
 
@@ -80,8 +81,12 @@ mod tests {
     }
 
     fn setup() -> (tempfile::TempDir, Repository, std::path::PathBuf) {
+        setup_in(StoreKind::Pack)
+    }
+
+    fn setup_in(kind: StoreKind) -> (tempfile::TempDir, Repository, std::path::PathBuf) {
         let d = tempfile::tempdir().unwrap();
-        let repo = Repository::init(d.path().join("repo")).unwrap();
+        let repo = Repository::init_with(d.path().join("repo"), kind).unwrap();
         let src = d.path().join("src");
         fs::create_dir(&src).unwrap();
         (d, repo, src)
@@ -111,8 +116,8 @@ mod tests {
     }
 
     #[test]
-    fn dry_run_and_grace_period_delete_nothing() {
-        let (_d, repo, src) = setup();
+    fn loose_dry_run_and_grace_period_delete_nothing() {
+        let (_d, repo, src) = setup_in(StoreKind::Loose);
         fs::write(src.join("f"), "x").unwrap();
         let first = commit_dir(&repo, &src, "one");
         fs::write(src.join("f"), "y").unwrap();
@@ -160,8 +165,8 @@ mod tests {
     }
 
     #[test]
-    fn refuses_to_run_on_a_damaged_repository() {
-        let (_d, repo, src) = setup();
+    fn refuses_to_run_on_a_damaged_loose_repository() {
+        let (_d, repo, src) = setup_in(StoreKind::Loose);
         fs::write(src.join("f"), vec![3u8; 100_000]).unwrap();
         commit_dir(&repo, &src, "one");
         let blob = repo
@@ -184,13 +189,58 @@ mod tests {
     }
 
     #[test]
-    fn removes_stale_temporary_files() {
-        let (d, repo, _src) = setup();
+    fn removes_stale_loose_temporary_files() {
+        let (d, repo, _src) = setup_in(StoreKind::Loose);
         let tmp = d.path().join("repo/objects/tmp/12345-0");
         fs::write(&tmp, "half written").unwrap();
         let lock = repo.lock_exclusive().unwrap();
         let report = gc(&repo, &lock, NOW).unwrap();
         assert_eq!(report.temp_files_removed, 1);
         assert!(!tmp.exists());
+    }
+
+    #[test]
+    fn collects_history_in_both_store_kinds() {
+        for kind in [StoreKind::Loose, StoreKind::Pack] {
+            let (_d, repo, src) = setup_in(kind);
+            fs::write(src.join("keep"), vec![1u8; 100_000]).unwrap();
+            let first = commit_dir(&repo, &src, "one");
+            fs::write(src.join("big"), vec![9u8; 300_000]).unwrap();
+            commit_dir(&repo, &src, "two");
+            repo.set_branch_tip("main", &first).unwrap();
+            let lock = repo.lock_exclusive().unwrap();
+            let report = gc(&repo, &lock, NOW).unwrap();
+            assert!(report.deleted > 0, "{kind:?}: {report:?}");
+            let after = fsck(&repo).unwrap();
+            assert!(
+                after.is_clean() && after.unreachable == 0,
+                "{kind:?}: {after:?}"
+            );
+            let reopened = Repository::open(repo.root()).unwrap();
+            assert!(fsck(&reopened).unwrap().is_clean(), "{kind:?} after reopen");
+        }
+    }
+
+    #[test]
+    fn pack_dry_run_changes_nothing() {
+        let (_d, repo, src) = setup();
+        fs::write(src.join("f"), "x").unwrap();
+        let first = commit_dir(&repo, &src, "one");
+        fs::write(src.join("f"), "y").unwrap();
+        commit_dir(&repo, &src, "two");
+        repo.set_branch_tip("main", &first).unwrap();
+        let lock = repo.lock_exclusive().unwrap();
+        let total = repo.store().list().unwrap().len();
+        let dry = gc(
+            &repo,
+            &lock,
+            GcOptions {
+                dry_run: true,
+                ..NOW
+            },
+        )
+        .unwrap();
+        assert!(dry.deleted > 0);
+        assert_eq!(repo.store().list().unwrap().len(), total);
     }
 }

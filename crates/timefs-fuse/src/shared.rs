@@ -121,14 +121,19 @@ mod tests {
     use std::fs;
     use std::os::unix::fs::PermissionsExt;
 
+    use timefs_core::repo::StoreKind;
     use timefs_core::worktree::ROOT_INO;
     use timefs_core::Repository;
 
     use super::*;
 
     fn shared(final_checkpoint: bool) -> (tempfile::TempDir, Shared) {
+        shared_in(StoreKind::Pack, final_checkpoint)
+    }
+
+    fn shared_in(kind: StoreKind, final_checkpoint: bool) -> (tempfile::TempDir, Shared) {
         let d = tempfile::tempdir().unwrap();
-        let repo = Arc::new(Repository::init(d.path().join("repo")).unwrap());
+        let repo = Arc::new(Repository::init_with(d.path().join("repo"), kind).unwrap());
         let engine = Engine::new(repo, "main", "tester", 64 * 1024).unwrap();
         let (tree, _) = engine.open_tree().unwrap();
         let stats = d.path().join("repo");
@@ -176,7 +181,8 @@ mod tests {
 
     #[test]
     fn a_failed_final_checkpoint_is_reported_and_retried() {
-        let (_d, s) = shared(true);
+        // Failure is injected by making the loose store's refs directory read-only.
+        let (_d, s) = shared_in(StoreKind::Loose, true);
         write_file(&s, "a");
         if !break_refs(&s, true) {
             eprintln!("skipping: permissions are not enforced for this user");
