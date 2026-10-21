@@ -8,6 +8,7 @@ pub mod chunk;
 pub mod codec;
 pub mod diff;
 pub mod error;
+pub mod filedata;
 pub mod fsck;
 pub mod gc;
 pub mod hash;

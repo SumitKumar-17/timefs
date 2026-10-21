@@ -6,6 +6,7 @@
 use std::collections::HashSet;
 
 use crate::error::{Error, Result};
+use crate::filedata;
 use crate::hash::Hash;
 use crate::object::{EntryKind, ObjectKind};
 use crate::store::{ObjectStore, ObjectStoreExt};
@@ -70,9 +71,11 @@ fn expand(
                 stack.push((e.hash, child, here.clone()));
             }
         }
-        ObjectKind::File => {
-            for e in store.get_file(hash)?.extents {
-                stack.push((e.hash, ObjectKind::Blob, here.clone()));
+        // A tree entry names either a flat `File` or a paged `FileIndex`; `file_children`
+        // looks at the actual kind and skips holes, which reference nothing.
+        ObjectKind::File | ObjectKind::FileIndex => {
+            for (child, child_kind) in filedata::file_children(store, hash)? {
+                stack.push((child, child_kind, here.clone()));
             }
         }
         ObjectKind::Blob => {}

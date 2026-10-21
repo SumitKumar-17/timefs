@@ -1,6 +1,7 @@
 //! Typed convenience layer over the raw [`ObjectStore`] interface.
 
 use crate::error::{Error, Result};
+use crate::filedata;
 use crate::hash::Hash;
 use crate::object::{Commit, FileObj, ObjectKind, Tree};
 use crate::store::ObjectStore;
@@ -11,8 +12,9 @@ pub trait ObjectStoreExt: ObjectStore {
         self.put(ObjectKind::Blob, data)
     }
 
+    /// Store a file's extent list (paged when long, see `filedata`).
     fn put_file(&self, file: &FileObj) -> Result<Hash> {
-        self.put(ObjectKind::File, &file.encode())
+        filedata::store_file(self, file)
     }
 
     fn put_tree(&self, tree: &Tree) -> Result<Hash> {
@@ -27,8 +29,9 @@ pub trait ObjectStoreExt: ObjectStore {
         self.get_kind(hash, ObjectKind::Blob)
     }
 
+    /// Load a file's full extent list from a `File` or `FileIndex` object.
     fn get_file(&self, hash: &Hash) -> Result<FileObj> {
-        FileObj::decode(&self.get_kind(hash, ObjectKind::File)?)
+        filedata::load_file(self, hash)
     }
 
     fn get_tree(&self, hash: &Hash) -> Result<Tree> {

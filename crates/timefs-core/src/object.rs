@@ -1,4 +1,4 @@
-//! The four immutable object kinds and their canonical encodings (see `docs/format.md`).
+//! The immutable object kinds and their canonical encodings (see `docs/format.md`).
 
 use crate::codec::{Reader, Writer};
 use crate::error::{Error, Result};
@@ -13,6 +13,8 @@ pub enum ObjectKind {
     File = 2,
     Tree = 3,
     Commit = 4,
+    /// The page list of a file too long for one `File` object (see [`FileIndex`]).
+    FileIndex = 5,
 }
 
 impl ObjectKind {
@@ -22,6 +24,7 @@ impl ObjectKind {
             2 => Ok(ObjectKind::File),
             3 => Ok(ObjectKind::Tree),
             4 => Ok(ObjectKind::Commit),
+            5 => Ok(ObjectKind::FileIndex),
             _ => Err(Error::corrupt(format!("unknown object kind {b}"))),
         }
     }
@@ -32,15 +35,87 @@ impl ObjectKind {
             ObjectKind::File => "file",
             ObjectKind::Tree => "tree",
             ObjectKind::Commit => "commit",
+            ObjectKind::FileIndex => "file index",
         }
     }
 }
 
-/// A run of file data stored as one blob.
+/// The reserved hash of a hole extent. BLAKE3 output equal to it has negligible probability.
+pub const HOLE_HASH: Hash = Hash([0; HASH_LEN]);
+
+/// Extents per page when a file's extent list is split (see [`FileIndex`]).
+pub const PAGE_EXTENTS: usize = 1024;
+
+/// A run of file data: one blob, or a hole of zeros that needs no blob at all.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Extent {
     pub hash: Hash,
     pub len: u64,
+}
+
+impl Extent {
+    /// `len` zero bytes, stored as nothing but this extent (sparse files stay small).
+    pub fn hole(len: u64) -> Self {
+        Extent {
+            hash: HOLE_HASH,
+            len,
+        }
+    }
+
+    pub fn is_hole(&self) -> bool {
+        self.hash == HOLE_HASH
+    }
+}
+
+/// One page of a long file: a `File` object holding up to [`PAGE_EXTENTS`] extents.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Page {
+    pub hash: Hash,
+    /// Bytes covered by the page.
+    pub size: u64,
+    pub extents: u64,
+}
+
+/// A long file as a list of pages. Editing one block rewrites one page and this index
+/// instead of the whole extent list.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FileIndex {
+    pub pages: Vec<Page>,
+}
+
+impl FileIndex {
+    pub fn size(&self) -> u64 {
+        self.pages.iter().map(|p| p.size).sum()
+    }
+
+    pub fn encode(&self) -> Vec<u8> {
+        let mut w = Writer::with_capacity(self.pages.len() * (HASH_LEN + 6) + 4);
+        w.varint(self.pages.len() as u64);
+        for p in &self.pages {
+            w.hash(&p.hash);
+            w.varint(p.size);
+            w.varint(p.extents);
+        }
+        w.finish()
+    }
+
+    pub fn decode(payload: &[u8]) -> Result<Self> {
+        let mut r = Reader::new(payload);
+        let n = r.varint()?;
+        if n > (r.remaining() / (HASH_LEN + 2)) as u64 {
+            return Err(Error::corrupt("page count exceeds input"));
+        }
+        let mut pages = Vec::with_capacity(n as usize);
+        for _ in 0..n {
+            pages.push(Page {
+                hash: r.hash()?,
+                size: r.varint()?,
+                extents: r.varint()?,
+            });
+        }
+        r.finish()?;
+        Ok(FileIndex { pages })
+    }
 }
 
 /// A regular file: the concatenation of its extents. An empty file has no extents.
@@ -396,9 +471,33 @@ mod tests {
         assert!(Commit::decode(&c.encode()).is_ok());
     }
 
+    #[test]
+    fn file_index_round_trip_and_holes() {
+        let idx = FileIndex {
+            pages: vec![
+                Page {
+                    hash: h(1),
+                    size: 1 << 30,
+                    extents: 1024,
+                },
+                Page {
+                    hash: h(2),
+                    size: 17,
+                    extents: 1,
+                },
+            ],
+        };
+        assert_eq!(idx.size(), (1 << 30) + 17);
+        assert_eq!(FileIndex::decode(&idx.encode()).unwrap(), idx);
+        assert!(Extent::hole(5).is_hole());
+        assert!(!Extent { hash: h(1), len: 5 }.is_hole());
+        assert_eq!(ObjectKind::from_u8(5).unwrap(), ObjectKind::FileIndex);
+    }
+
     proptest! {
         #[test]
         fn decoders_never_panic(data in proptest::collection::vec(any::<u8>(), 0..200)) {
+            let _ = FileIndex::decode(&data);
             let _ = FileObj::decode(&data);
             let _ = Tree::decode(&data);
             let _ = Commit::decode(&data);
