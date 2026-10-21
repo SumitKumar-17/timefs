@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 
 use super::*;
+use crate::object::MAX_NAME_LEN;
 use crate::store::{LooseStore, ObjectStore};
 
 const BLOCK: usize = 16;
@@ -97,6 +98,25 @@ fn error_cases() {
     ));
     write_file(&mut wt, d, "inner", b"1");
     assert!(matches!(wt.rmdir(ROOT_INO, b"d"), Err(FsError::NotEmpty)));
+}
+
+#[test]
+fn lookup_of_an_over_long_name_reports_name_too_long() {
+    let fx = Fixture::new();
+    let mut wt = fx.open(None);
+    let longest = vec![b'x'; MAX_NAME_LEN];
+    write_file(
+        &mut wt,
+        ROOT_INO,
+        std::str::from_utf8(&longest).unwrap(),
+        b"1",
+    );
+    assert!(wt.lookup(ROOT_INO, &longest).is_ok());
+    let too_long = vec![b'x'; MAX_NAME_LEN + 1];
+    assert!(matches!(
+        wt.lookup(ROOT_INO, &too_long),
+        Err(FsError::NameTooLong)
+    ));
 }
 
 #[test]

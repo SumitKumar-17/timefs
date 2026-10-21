@@ -32,6 +32,7 @@ project state; update it in the same commit that changes the state.
 Newest first. One line per notable change; link commits or benchmark runs when relevant.
 
 * 2026-10-21, M7: pack store (ADR-0009 part 1) as default, migrate command, SIGKILL crash test on both stores.
+* 2026-10-21, M7: fsx-style differential stress test against a host oracle; pjdfstest run by hand; lookup now returns ENAMETOOLONG.
 * 2026-10-20, M6 done: results in benchmarks.md; review fixes landed (150 tests); M7 hardening started.
 * 2026-10-20, M6: parallel fsync, read cache, kernel page cache; measured before/after in benchmarks.md.
 * 2026-10-20, M5 done: 3-way merge, GC, checkout, reset, offline snap (116 tests).

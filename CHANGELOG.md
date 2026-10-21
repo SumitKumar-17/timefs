@@ -67,6 +67,8 @@ No release has been tagged yet.
 * A mount no longer overwrites a branch that moved underneath it (checkpoint and snapshot
   refuse), and a checkpoint equal to the branch state is cleared instead of written.
 * Unlinked files report `nlink` 0; `RENAME_WHITEOUT` is rejected with `EINVAL`.
+* Looking up a name longer than 255 bytes returned `ENOENT`; it now returns `ENAMETOOLONG`
+  like native filesystems (found by the differential stress test and pjdfstest).
 
 ### Performance
 
