@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install libfuse3
+        run: sudo apt-get update && sudo apt-get install -y libfuse3-dev fuse3 pkg-config
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test
+        run: cargo test --workspace
+      - name: Build release binary
+        run: cargo build --release -p timefs-cli
+      - name: Package
+        run: |
+          name="timefs-${GITHUB_REF_NAME}-x86_64-linux"
+          mkdir "$name"
+          cp target/release/timefs README.md LICENSE CHANGELOG.md "$name"/
+          tar -czf "$name.tar.gz" "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+      - name: Release notes from the changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="## [$version]" 'index($0, v) == 1 {on = 1; next} on && /^## \[/ {exit} on {print}' \
+            CHANGELOG.md > notes.md
+          test -s notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "TimeFS ${GITHUB_REF_NAME}" \
+            --notes-file notes.md \
+            timefs-*.tar.gz timefs-*.tar.gz.sha256

@@ -14,7 +14,7 @@ project state; update it in the same commit that changes the state.
 | M4 | FUSE adapter: read-write mount, checkpoints, wip recovery, control socket | ☑ |
 | M5 | Branches, 3-way merge, GC | ☑ |
 | M6 | Benchmark suite, profiling, measured optimisations, results write-up | ☑ |
-| M7 | Hardening: crash-injection tests, pjdfstest/fsx runs, docs polish, release | ◐ |
+| M7 | Hardening: crash-injection tests, pjdfstest/fsx runs, docs polish, release | ☑ |
 
 ## Candidate future work (not committed)
 
@@ -29,6 +29,7 @@ project state; update it in the same commit that changes the state.
 
 Newest first. One line per notable change; link commits or benchmark runs when relevant.
 
+* 2026-10-21, M7 done: extent pages and hole extents (ADR-0009 part 2), branch creation through the mount, release 0.1.0.
 * 2026-10-21, M7: pack store (ADR-0009 part 1) as default, migrate command, SIGKILL crash test on both stores.
 * 2026-10-21, M7: fsx-style differential stress test against a host oracle; pjdfstest run by hand; lookup now returns ENAMETOOLONG.
 * 2026-10-20, M6 done: results in benchmarks.md; review fixes landed (150 tests); M7 hardening started.

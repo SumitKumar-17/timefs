@@ -3,8 +3,8 @@
 A userspace filesystem (FUSE / libfuse3) with **built-in time travel**: changes are checkpointed
 into an immutable, content-addressed, copy-on-write history that you can inspect, branch, merge and roll back.
 
-* **Status:** milestones M0 to M5 are done (core, repository, worktree, FUSE mount, checkpoints with crash recovery, control socket, merge, GC, offline snap/checkout/reset).
-* M6 (benchmarks, optimisation) is in progress; M7 (hardening) has not started. See [roadmap](docs/roadmap.md).
+* **Status:** version 0.1.0. Milestones M0 to M7 are done: core engine, pack and loose stores, writable FUSE mount, checkpoints with crash recovery, branches, merge, GC, benchmarks, crash-injection and differential stress tests. See the [roadmap](docs/roadmap.md).
+* **Download:** prebuilt Linux x86_64 binaries are attached to each [GitHub release](https://github.com/SumitKumar-17/timefs/releases); or build from source below.
 
 ## Idea in one picture
 
