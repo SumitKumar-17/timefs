@@ -6,11 +6,17 @@
 //! object payload  = hash[32] | kind:u8 | data
 //! ref-set payload = hash[32] | name (UTF-8)
 //! ref-del payload = name (UTF-8)
+//! synced payload  = upto:u64 (everything before this offset was fsynced)
 //! ```
 //!
 //! A crash can tear only the end of the active segment. Scanning stops at the first record
 //! that is incomplete or fails its check, so everything after a torn record (including a
 //! ref record that might name a lost object) is ignored as a unit.
+//!
+//! A damaged record inside data that was already durable is different: that is corruption,
+//! not a torn write, and must not be silently dropped. `synced` markers tell the two apart:
+//! one is appended before the first record that follows a successful `fdatasync`, so a
+//! valid marker beyond a damaged record proves the damaged region had been made durable.
 
 use std::fs::File;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
@@ -30,6 +36,7 @@ enum RecordType {
     Object = 1,
     RefSet = 2,
     RefDelete = 3,
+    Synced = 4,
 }
 
 impl RecordType {
@@ -38,6 +45,7 @@ impl RecordType {
             1 => Some(RecordType::Object),
             2 => Some(RecordType::RefSet),
             3 => Some(RecordType::RefDelete),
+            4 => Some(RecordType::Synced),
             _ => None,
         }
     }
@@ -53,6 +61,11 @@ pub fn ref_set(name: &str, hash: &Hash) -> Vec<u8> {
 
 pub fn ref_delete(name: &str) -> Vec<u8> {
     frame(RecordType::RefDelete, &[name.as_bytes()])
+}
+
+/// Marker stating that everything before `upto` in this segment was fsynced.
+pub fn synced(upto: u64) -> Vec<u8> {
+    frame(RecordType::Synced, &[&upto.to_le_bytes()])
 }
 
 fn frame(ty: RecordType, parts: &[&[u8]]) -> Vec<u8> {
@@ -94,12 +107,18 @@ pub enum Entry {
     RefDelete {
         name: String,
     },
+    Synced {
+        upto: u64,
+    },
 }
 
 pub struct Scan {
     pub entries: Vec<Entry>,
     /// Length of the valid prefix; equals the file length when nothing is torn.
     pub valid_len: u64,
+    /// Set when the first invalid record lies in a region a later `synced` marker proves
+    /// was durable: corruption rather than a torn write.
+    pub corrupt_at: Option<u64>,
 }
 
 /// Parse records from the start of `file`. With `verify_objects`, object records are
@@ -132,10 +151,38 @@ pub fn scan(file: &File, verify_objects: bool) -> io::Result<Scan> {
         entries.push(entry);
         off += HEADER_LEN + len + CHECK_LEN;
     }
+    let corrupt_at = if off < file_len && durable_beyond(file, off, file_len)? {
+        Some(off)
+    } else {
+        None
+    };
     Ok(Scan {
         entries,
         valid_len: off,
+        corrupt_at,
     })
+}
+
+/// Whether a valid `synced` marker after `bad` claims durability past `bad`. Only runs when
+/// the log has an invalid record, so its cost does not matter on the normal path.
+fn durable_beyond(file: &File, bad: u64, file_len: u64) -> io::Result<bool> {
+    let mut rest = vec![0u8; (file_len - bad) as usize];
+    std::os::unix::fs::FileExt::read_exact_at(file, &mut rest, bad)?;
+    let marker_len = (HEADER_LEN + 8 + CHECK_LEN) as usize;
+    for start in 1..rest.len().saturating_sub(marker_len - 1) {
+        let r = &rest[start..start + marker_len];
+        if r[0] != MAGIC || r[1] != RecordType::Synced as u8 || r[2..6] != 8u32.to_le_bytes() {
+            continue;
+        }
+        let payload = &r[HEADER_LEN as usize..HEADER_LEN as usize + 8];
+        if r[HEADER_LEN as usize + 8..] != checksum(&r[1..HEADER_LEN as usize], payload) {
+            continue;
+        }
+        if u64::from_le_bytes(payload.try_into().unwrap()) > bad {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Read the hash and kind of an object record and skip its data and check.
@@ -183,6 +230,9 @@ fn read_verified<R: Read>(
         RecordType::RefDelete => String::from_utf8(payload)
             .ok()
             .map(|name| Entry::RefDelete { name }),
+        RecordType::Synced => payload.try_into().ok().map(|b: [u8; 8]| Entry::Synced {
+            upto: u64::from_le_bytes(b),
+        }),
     })
 }
 
@@ -270,6 +320,36 @@ mod tests {
         let (f, _) = file_with(&[whole]);
         let verified = scan(f.as_file(), true).unwrap();
         assert_eq!((verified.valid_len, verified.entries.len()), (0, 0));
+    }
+
+    #[test]
+    fn damage_before_a_sync_marker_is_corruption_not_a_torn_tail() {
+        let records = sample();
+        let synced_len = (records[0].len() + records[1].len()) as u64;
+        let mut whole = records[0].clone();
+        whole.extend_from_slice(&records[1]);
+        whole.extend_from_slice(&synced(synced_len));
+        whole.extend_from_slice(&records[2]);
+        whole[HEADER_LEN as usize + 40] ^= 1; // damage the first, already durable, record
+        let (f, _) = file_with(&[whole]);
+        let scan = scan(f.as_file(), true).unwrap();
+        assert_eq!(scan.corrupt_at, Some(0));
+    }
+
+    #[test]
+    fn a_torn_write_after_a_sync_marker_is_still_a_torn_tail() {
+        let records = sample();
+        let synced_len = (records[0].len() + records[1].len()) as u64;
+        let mut whole = records[0].clone();
+        whole.extend_from_slice(&records[1]);
+        let marker_at = whole.len() as u64;
+        whole.extend_from_slice(&synced(synced_len));
+        let torn = &records[2][..records[2].len() - 3];
+        whole.extend_from_slice(torn);
+        let (f, _) = file_with(&[whole]);
+        let scan = scan(f.as_file(), true).unwrap();
+        assert_eq!(scan.corrupt_at, None);
+        assert_eq!(scan.valid_len, marker_at + synced(0).len() as u64);
     }
 
     #[test]

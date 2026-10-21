@@ -62,6 +62,9 @@ struct Writer {
     unsynced: bool,
     /// A segment file was created since the directory was last fsynced.
     new_segment: bool,
+    /// Offset proven durable by the last `fdatasync`, to be recorded as a `synced` marker in
+    /// front of the next record (see `record`).
+    marker: Option<u64>,
 }
 
 pub struct PackStore {
@@ -137,6 +140,7 @@ impl PackStore {
                     offset: valid_len,
                     unsynced: false,
                     new_segment: false,
+                    marker: None,
                 }
             }
             None => {
@@ -149,6 +153,7 @@ impl PackStore {
                     offset: 0,
                     unsynced: false,
                     new_segment: true,
+                    marker: None,
                 }
             }
         };
@@ -160,6 +165,11 @@ impl PackStore {
     fn append(&self, w: &mut Writer, bytes: &[u8]) -> Result<(u32, u64)> {
         if w.offset > 0 && w.offset + bytes.len() as u64 > self.segment_limit {
             self.rotate(w)?;
+        }
+        if let Some(upto) = w.marker.take() {
+            let marker = record::synced(upto);
+            w.file.write_all_at(&marker, w.offset)?;
+            w.offset += marker.len() as u64;
         }
         w.file.write_all_at(bytes, w.offset)?;
         let start = w.offset;
@@ -183,6 +193,7 @@ impl PackStore {
         w.offset = 0;
         w.unsynced = false;
         w.new_segment = true;
+        w.marker = None;
         Ok(())
     }
 
@@ -192,6 +203,7 @@ impl PackStore {
         if w.unsynced {
             w.file.sync_data()?;
             w.unsynced = false;
+            w.marker = Some(w.offset);
         }
         if w.new_segment {
             File::open(&self.dir)?.sync_all()?;
@@ -224,6 +236,11 @@ fn load(dir: &Path) -> Result<(State, Option<(u32, u64)>)> {
         let file = segment::open(dir, id)?;
         let active = i + 1 == ids.len();
         let scan = record::scan(&file, active)?;
+        if let Some(at) = scan.corrupt_at {
+            return Err(Error::corrupt(format!(
+                "pack segment {id} is damaged at byte {at}, inside data that was already durable"
+            )));
+        }
         if !active && scan.valid_len != file.metadata()?.len() {
             return Err(Error::corrupt(format!(
                 "sealed pack segment {id} is damaged at byte {}",
@@ -264,6 +281,7 @@ fn apply(state: &mut State, segment: u32, entries: Vec<Entry>) {
             Entry::RefDelete { name } => {
                 state.refs.remove(&name);
             }
+            Entry::Synced { .. } => {}
         }
     }
 }
