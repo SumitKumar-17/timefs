@@ -35,7 +35,7 @@ runs, with the commit hash and machine description.**
 
 | Item | Value |
 |---|---|
-| Commit | `4fcdcfb` (core tables, mount "after" table); mount "before" table from `903f7ab` |
+| Commit | M6 tables: `4fcdcfb` (mount "before": `903f7ab`); M7 pack vs loose tables: `2f421f6` |
 | CPU | Intel Core i5-6300U, 2 cores / 4 threads, 2.4 GHz |
 | Storage | Crucial MX300 525 GB SATA SSD, ext4 (`relatime`), repo and scratch on the same disk |
 | Kernel / libfuse | Linux 7.2.6 (Arch), libfuse 3.18.3 |
@@ -47,22 +47,64 @@ Cells show `median (min..max)`. Generated files average 4 KiB (0.5x to 1.5x), ra
 
 ### Answer to the research question (summary)
 
-* **Snapshots cost what changed, not what exists.** After editing one file, a snapshot of a
-  100,000-file tree took 9.6 ms and stored 6 objects (18 KiB). `git commit -a` needed
-  176 ms for the same edit (it stats every file); `cp -r` needed 4.6 s and a full copy.
-* **Branching is a ref write (about 4 ms, two fsyncs) at every tree size.** Opening any
-  commit and reading a file takes 0.1 to 0.2 ms, because trees load lazily.
-* **Merge cost follows changed paths:** 1,000 changed files per side on a 100,000-file tree
-  merged in 1.1 ms; tree size barely matters.
-* **Recovery is free at runtime:** it is one ref read at mount (crash tests in
-  `crates/timefs-fuse/tests/mount.rs`).
-* **Where it is not cheap:** `fsync` (about 9.4 ms vs 2.1 ms on ext4, explained below), the
-  initial import of many small files (one object file per block), disk usage of small
-  objects (about 2.5x their size in `du`), and the flat extent list of large files
-  (up to 70x write amplification for a single 4 KiB write at 4 KiB blocks). ADR-0009 proposes
-  the fix for all four.
+Numbers from the M7 run (`2f421f6`, pack store, the default; loose store in parentheses)
+unless marked M6 (`4fcdcfb`, loose store).
 
-### Core scenarios (no FUSE)
+* **Snapshots cost what changed, not what exists.** After editing one file, a snapshot of a
+  100,000-file tree took 2.7 ms (loose 9.5 ms) and stored 6 objects (18 KiB).
+  `git commit -a` needed 150 to 244 ms for the same edit (it stats every file); `cp -r`
+  needed about 4 s and a full copy.
+* **Durability costs what the host charges for one fsync.** Application `fsync` on a pack
+  mount: 2.0 ms, the same as ext4 itself (2.0 ms) and the FUSE passthrough (2.1 ms).
+* **Branching is a ref write at every tree size** (M6: about 4 ms for a loose ref file; with
+  pack it is one log record plus one `fdatasync`). Opening any commit and reading a file
+  takes 0.1 to 0.2 ms (M6, lazy loading).
+* **Merge cost follows changed paths** (M6): 1,000 changed files per side on a 100,000-file
+  tree merged in 1.1 ms.
+* **Recovery is free at runtime:** one log scan at open. The SIGKILL crash-injection test
+  recovered a valid state in every one of its runs on both stores.
+* **Storage overhead is near zero with the pack store:** 100,000 files of 4 KiB: 410 MiB on
+  disk for 401 MiB stored, 3 host inodes (loose: 1006 MiB, 201,269 inodes).
+* **Still not cheap:** the flat extent list of large files (up to 70x write amplification for
+  a single 4 KiB write at 4 KiB blocks), and memory for touched inodes. See open bottlenecks.
+
+### Pack store vs loose store (M7, `2f421f6`)
+
+Same machine, same harness: `timefs-bench --repeat 5 --sizes 1000,10000,100000 --store <kind> core snapshot store fsync`.
+
+| 100,000 files | loose | pack | reference |
+|---|---|---|---|
+| initial import | 45,307 ms | 4,134 ms | `cp -r`: 3,732 to 4,076 ms |
+| snapshot after 1 edited file | 9.48 ms | 2.67 ms | `git commit -a`: 150 to 244 ms |
+| snapshot after 100 edited files | 122.67 ms | 11.10 ms | |
+| disk usage (`du`) | 1006.5 MiB | 409.6 MiB | 400.7 MiB stored |
+| host inodes added | 201,269 | 3 | |
+| fsck (read and verify everything) | 6,811 ms | 2,552 ms | |
+| checkpoint for append + fsync (core) | 16.07 ms | 2.25 ms | |
+
+Mount workloads, `STORE=<kind> BENCH_ARGS="--repeat 3" scripts/bench-mount.sh` (both runs back to back):
+
+| workload | ext4 | fuse-passthrough | timefs-pack | timefs-loose |
+|---|---|---|---|---|
+| seq write MB/s (incl fsync) | 408.8 | 333.1 | 531.7 | 538.8 |
+| seq read warm MB/s | 3531.2 | 2040.7 | 5732.9 | 6559.3 |
+| seq read cold MB/s | 386.1 | 2306.0 | 2233.4 | 2080.8 |
+| rand read 4K IOPS (cold) | 5093.2 | 60803.1 | 45480.4 | 44919.6 |
+| rand write 4K IOPS (incl fsync) | 37734.9 | 22553.1 | 20776.6 | 11159.6 |
+| create 4 KiB files /s | 30713.6 | 8773.3 | 14671.1 | 15265.2 |
+| stat /s | 445678.0 | 59325.2 | 76493.8 | 58685.3 |
+| open+read+close /s | 80879.0 | 16062.9 | 26820.1 | 26193.4 |
+| readdir entries /s | 2544307.0 | 821532.7 | 2256736.9 | 1676025.4 |
+| rename /s | 44617.4 | 524.8 | 32587.9 | 30691.9 |
+| unlink /s | 83208.9 | 21297.4 | 65241.5 | 62476.9 |
+| fsync latency ms (append 4 KiB) | 2.0 | 2.1 | 2.0 | 35.3 |
+
+* The loose store's fsync latency varies with the disk's state: 9.4 ms in the M6 run,
+  35.3 ms in this one (taken right after the 100,000-file core runs). The pack store does one
+  `fdatasync` of one file, so it tracks the host's own fsync cost.
+* Read paths are the same code (read cache, kernel page cache), so the stores read alike.
+
+### Core scenarios (no FUSE), M6 run on the loose store
 
 #### Snapshot latency and space (Q1, Q2)
 
@@ -185,7 +227,7 @@ Cells show `median (min..max)`. Generated files average 4 KiB (0.5x to 1.5x), ra
 | total | 9.42 (6.88..17.71) |
 | new objects per checkpoint | 4 |
 
-### Mount workloads (FUSE)
+### Mount workloads (FUSE), M6 runs on the loose store
 
 Same Rust workload code on four targets: ext4 directly, tmpfs, a minimal FUSE passthrough
 over ext4 (`timefs-bench passthrough`, isolates FUSE overhead), and TimeFS (repo on ext4).
@@ -247,14 +289,12 @@ Every change was measured with the scenario named; numbers are medians.
 | 4 | every read opened, read and BLAKE3-verified a whole block | `CachedStore`: two-generation read cache (64 MiB); immutable objects never go stale | warm seq read 821 to 2114 MB/s; cold 4K random read 15.3k to 42.0k IOPS (mount workloads) | yes |
 | 5 | three fsync rounds per object sync | one combined parallel round (files, dirs, root) | fsync latency not better (A/B, 3 runs each: 9.5 to 10.9 ms vs 8.9 to 9.9 ms for two rounds) | no, reverted to two rounds |
 | 6 | kernel dropped its page cache on every open | `FOPEN_KEEP_CACHE` (all writes go through the mount) | warm seq read 2114 to 6539 MB/s; open+read+close 18.2k to 31.8k /s | yes |
+| 7 | loose store: two journal rounds for objects plus two for the ref; one file and inode per object | pack store (ADR-0009): objects and refs in one log, one `fdatasync` per checkpoint | mount fsync 35.3 to 2.0 ms in the same session; 100k-file import 45.3 s to 4.1 s; disk usage 1006 to 410 MiB | yes, default |
 
 ### Open bottlenecks (measured, not yet fixed)
 
-* **fsync latency 9.4 ms:** the phase breakdown shows two journal rounds for objects and two
-  for the ref. Removing them needs objects and refs in one log (ADR-0009).
-* **Small-object overhead:** 100,000 files of 4 KiB use 1006 MiB on disk for 401 MiB stored,
-  and about 2 host inodes per file (Q9).
 * **Flat extent lists:** a 4 KiB write to a 32 MiB file at 4 KiB blocks rewrites a 280 KiB
-  file object (Q7); extent pages in ADR-0009 bound this.
-* **Initial import** of 100,000 files: 37 s vs 4.6 s for `cp -r`, dominated by per-object
-  file creation and fsync.
+  file object (Q7); extent pages (ADR-0009 part 2) bound this and lift the 64 GiB file cap.
+* **Inode memory:** nodes of every touched path stay in memory for the life of a mount.
+* Resolved in M7 by the pack store: fsync latency, small-object disk and inode overhead, and
+  the slow initial import (all measured above).

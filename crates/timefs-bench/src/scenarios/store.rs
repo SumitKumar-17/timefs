@@ -58,6 +58,9 @@ pub fn run(cfg: &Config) -> Res {
         ]);
         std::fs::remove_dir_all(&work)?;
     }
-    table.print("Loose object store overhead (Q9)");
+    table.print(&format!(
+        "Object store overhead, {:?} store (Q9)",
+        cfg.store
+    ));
     Ok(())
 }

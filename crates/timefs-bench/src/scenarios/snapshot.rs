@@ -64,7 +64,10 @@ pub fn run(cfg: &Config) -> Res {
         }
         std::fs::remove_dir_all(&work)?;
     }
-    table.print("Snapshot latency and space (Q1, Q2)");
+    table.print(&format!(
+        "Snapshot latency and space, {:?} store (Q1, Q2)",
+        cfg.store
+    ));
     Ok(())
 }
 
