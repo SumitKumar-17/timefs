@@ -11,6 +11,11 @@ const PERM_MASK: u32 = 0o7777;
 
 impl WorkTree {
     pub fn lookup(&mut self, parent: Ino, name: &[u8]) -> FsResult<Attr> {
+        // An over-long component is reported as such, like on native filesystems, so a
+        // caller can tell "too long" apart from "absent" (POSIX ENAMETOOLONG).
+        if name.len() > MAX_NAME_LEN {
+            return Err(FsError::NameTooLong);
+        }
         if validate_name(name).is_err() {
             return Err(FsError::NotFound);
         }
