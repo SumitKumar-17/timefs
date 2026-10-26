@@ -1,5 +1,8 @@
 # Contributing to TimeFS
 
+* [`AGENTS.md`](AGENTS.md) is the authoritative guide (architecture, invariants, commands,
+  conventions). This file is the short version for human contributors.
+
 Read [AGENTS.md](AGENTS.md) first; it is the full rulebook. This page is the short version.
 
 ## Prerequisites
